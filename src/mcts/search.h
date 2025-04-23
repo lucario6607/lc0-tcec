@@ -1,7 +1,7 @@
 /*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018-2023 The LCZero Authors
-  ... (License remains the same) ...
+  ... (License header) ...
 */
 
 #pragma once
@@ -12,23 +12,27 @@
 #include <optional>
 #include <shared_mutex>
 #include <thread>
-#include <vector> // Added for std::vector
+#include <vector>
 
 #include "chess/callbacks.h"
 #include "chess/uciloop.h"
-#include "neural/backend.h"
-#include "mcts/node.h" // Adjusted path
-#include "mcts/params.h" // Adjusted path
-#include "mcts/stoppers/timemgr.h" // Adjusted path
+// #include "neural/backend.h" // INCORRECT INCLUDE
+#include "neural/network.h" // CORRECT INCLUDE for this fork structure
+#include "mcts/node.h"
+#include "mcts/params.h"
+#include "mcts/stoppers/timemgr.h"
 #include "syzygy/syzygy.h"
 #include "utils/logging.h"
 #include "utils/mutex.h"
 
-namespace lczero { // No classic namespace
+namespace lczero {
+
+// Removed classic namespace
 
 class Search {
  public:
-  Search(const NodeTree& tree, Backend* network,
+  // Constructor takes Network* instead of Backend*
+  Search(const NodeTree& tree, Network* network,
          std::unique_ptr<UciResponder> uci_responder,
          const MoveList& searchmoves,
          std::chrono::steady_clock::time_point start_time,
@@ -74,7 +78,8 @@ class Search {
   void ResetBestMove();
 
   // Returns NN eval for a given node from cache, if that node is cached.
-  std::optional<EvalResult> GetCachedNNEval(const Node* node) const;
+  // This likely needs Network::GetCachedOutput or similar, adjust if needed
+  std::optional<Network::Output> GetCachedNNEval(const Node* node) const;
 
   // --- Root Beam Search ADDED ---
   void UpdateRootBeam(Node* root_node) REQUIRES(nodes_mutex_);
@@ -152,8 +157,8 @@ class Search {
   // Fixed positions which happened before the search.
   const PositionHistory& played_history_;
 
-  Backend* const backend_;
-  BackendAttributes backend_attributes_;
+  Network* const network_; // Changed from Backend*
+  NetworkCapabilities network_capabilities_; // Changed from BackendAttributes
   const SearchParams params_;
   const MoveList searchmoves_;
   const std::chrono::steady_clock::time_point start_time_;
@@ -206,17 +211,15 @@ class SearchWorker {
       : search_(search),
         history_(search_->played_history_),
         params_(params),
-        moves_left_support_(search_->backend_attributes_.has_mlh) {
+        moves_left_support_(search_->network_capabilities_.has_mlh) { // Use network_capabilities_
     task_workers_ = params.GetTaskWorkersPerSearchWorker();
     if (task_workers_ < 0) {
-      if (search_->backend_attributes_.runs_on_cpu) {
-        task_workers_ = 0;
-      } else {
-        int working_threads = std::max(
-            search_->thread_count_.load(std::memory_order_acquire) - 1, 1);
-        task_workers_ = std::min(
-            (unsigned int)std::thread::hardware_concurrency() / working_threads - 1, 4U); // Cast hardware_concurrency to unsigned int
-      }
+      // Removed runs_on_cpu check as BackendAttributes is removed
+      // Simplified heuristic or make it fixed
+      int working_threads = std::max(
+          search_->thread_count_.load(std::memory_order_acquire) - 1, 1);
+      task_workers_ = std::min(
+          (unsigned int)std::thread::hardware_concurrency() / working_threads - 1, 4U);
     }
     for (int i = 0; i < task_workers_; i++) {
       task_workspaces_.emplace_back();
@@ -225,7 +228,7 @@ class SearchWorker {
     target_minibatch_size_ = params_.GetMiniBatchSize();
     if (target_minibatch_size_ == 0) {
       target_minibatch_size_ =
-          search_->backend_attributes_.recommended_batch_size;
+          search_->network_capabilities_.recommended_batch_size; // Use network_capabilities_
     }
     max_out_of_order_ = params_.GetMaxOutOfOrderEvals(); // Use the calculated value
   }
@@ -271,7 +274,8 @@ class SearchWorker {
   // The same operations one by one:
   // 1. Initialize internal structures.
   // @computation is the computation to use on this iteration.
-  void InitializeIteration(std::unique_ptr<BackendComputation> computation);
+  // Change BackendComputation to NetworkComputation
+  void InitializeIteration(std::unique_ptr<NetworkComputation> computation);
 
   // 2. Gather minibatch.
   void GatherMinibatch();
@@ -304,7 +308,8 @@ class SearchWorker {
 
     // The node to extend.
     Node* node;
-    std::unique_ptr<EvalResult> eval;
+    // Use Network::Output instead of EvalResult
+    std::unique_ptr<Network::Output> eval;
     int multivisit = 0;
     // If greater than multivisit, and other parameters don't imply a lower
     // limit, multivist could be increased to this value without additional
@@ -336,7 +341,8 @@ class SearchWorker {
     NodeToProcess(Node* node, uint16_t depth, bool is_collision, int multivisit,
                   int max_count)
         : node(node),
-          eval(std::make_unique<EvalResult>()),
+          // Use Network::Output
+          eval(std::make_unique<Network::Output>()),
           multivisit(multivisit),
           maxvisit(max_count),
           depth(depth),
@@ -417,7 +423,8 @@ class SearchWorker {
   Search* const search_;
   // List of nodes to process.
   std::vector<NodeToProcess> minibatch_;
-  std::unique_ptr<BackendComputation> computation_;
+  // Change BackendComputation to NetworkComputation
+  std::unique_ptr<NetworkComputation> computation_;
   int task_workers_;
   int target_minibatch_size_;
   int max_out_of_order_;
