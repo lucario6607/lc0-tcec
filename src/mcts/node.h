@@ -16,12 +16,11 @@
 
 #include "chess/board.h"
 #include "chess/callbacks.h"
-#include "chess/gamestate.h"
+// #include "chess/gamestate.h" // Removed include
 #include "chess/position.h"
 #include "neural/encoder.h"
 #include "proto/net.pb.h"
 #include "utils/mutex.h"
-// #include "utils/nonparallelvector.h" // REMOVED THIS LINE
 
 namespace lczero { // No classic namespace
 
@@ -100,6 +99,12 @@ struct Eval {
   float d;
   float ml;
 };
+
+// Forward declare EvalResult if needed (depends on neural/network.h)
+namespace neural {
+struct EvalResult;
+}
+using EvalResult = neural::EvalResult; // Alias for convenience
 
 class EdgeAndNode;
 template <bool is_const>
