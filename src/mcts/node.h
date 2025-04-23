@@ -1,7 +1,7 @@
 /*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018 The LCZero Authors
-  ... (License remains the same) ...
+  ... (License header) ...
 */
 
 #pragma once
@@ -13,56 +13,98 @@
 #include <mutex>
 #include <vector> // Use std::vector
 #include <list>   // For GCQueue
+#include <atomic> // Added for atomic_uint32_t
 
 #include "chess/board.h"
 #include "chess/callbacks.h"
-// #include "chess/gamestate.h" // Removed include
+// #include "chess/gamestate.h" // REMOVED THIS INCLUDE
 #include "chess/position.h"
 #include "neural/encoder.h"
 #include "proto/net.pb.h"
 #include "utils/mutex.h"
+#include "neural/network.h" // Include for EvalResult
 
 namespace lczero { // No classic namespace
 
-// Terminology:
-// * Edge - a potential edge with a move and policy information.
-// * Node - an existing edge with number of visits and evaluation.
-// * LowNode - a node with number of visits, evaluation and edges. -> OBSOLETE TERM
-// Node class now incorporates what LowNode used to.
-//
-// Storage:
-// * Potential edges are stored in a simple array inside the Node as edges_.
-// * Existing children Nodes are stored in a linked list starting with a child_ pointer
-//   in the Node and continuing with a sibling_ pointer in each child Node,
-//   OR as a contiguous array if solid_children_ is true.
-// * Existing children Nodes have a copy of their potential edge counterpart, index_
-//   among potential edges.
-//
-// Example:
-//                                Parent Node
-//                                    |
-//        +-------------+-------------+----------------+--------------+
-//        |              |            |                |              |
-//   Edge 0(Nf3)    Edge 1(Bc5)     Edge 2(a4)     Edge 3(Qxf7)    Edge 4(a3)
-//    (dangling)         |           (dangling)        |           (dangling)
-//                   Node, Q=0.5                    Node, Q=-0.2
-//
-//  Is represented as:
-// +--------------+
-// | Parent Node  |
-// +--------------+                                        +--------+
-// | edges_       | -------------------------------------> | Edge[] |
-// |              |    +------------+                      +--------+
-// | child_       | -> | Node       |                      | Nf3    |
-// +--------------+    +------------+                      | Bc5    |
-//                     | index_ = 1 |                      | a4     |
-//                     | q_ = 0.5   |    +------------+    | Qxf7   |
-//                     | sibling_   | -> | Node       |    | a3     |
-//                     +------------+    +------------+    +--------+
-//                                       | index_ = 3 |
-//                                       | q_ = -0.2  |
-//                                       | sibling_   | -> nullptr
-//                                       +------------+
+// Define __i386__  or __arm__ also for 32 bit Windows.
+#if defined(_M_IX86)
+#define __i386__
+#endif
+#if defined(_M_ARM) && !defined(_M_AMD64)
+#define __arm__
+#endif
+
+// Atomic unique_ptr based on the public domain code from
+// https://stackoverflow.com/a/42811152 .
+template <class T>
+class atomic_unique_ptr {
+  using pointer = T*;
+  using unique_pointer = std::unique_ptr<T>;
+
+ public:
+  // Manage no pointer.
+  constexpr atomic_unique_ptr() noexcept : ptr() {}
+
+  // Make pointer @p managed.
+  explicit atomic_unique_ptr(pointer p) noexcept : ptr(p) {}
+
+  // Move the managed pointer ownership from another atomic_unique_ptr.
+  atomic_unique_ptr(atomic_unique_ptr&& p) noexcept : ptr(p.release()) {}
+  // Move the managed pointer ownership from another atomic_unique_ptr.
+  atomic_unique_ptr& operator=(atomic_unique_ptr&& p) noexcept {
+    reset(p.release());
+    return *this;
+  }
+
+  // Move the managed object ownership from a unique_ptr.
+  atomic_unique_ptr(unique_pointer&& p) noexcept : ptr(p.release()) {}
+  // Move the managed object ownership from a unique_ptr.
+  atomic_unique_ptr& operator=(unique_pointer&& p) noexcept {
+    reset(p.release());
+    return *this;
+  }
+
+  // Replace the managed pointer, deleting the old one.
+  void reset(pointer p = pointer()) noexcept {
+    auto old = ptr.exchange(p, std::memory_order_acquire);
+    if (old) delete old;
+  }
+  // Release ownership of and delete the owned pointer.
+  ~atomic_unique_ptr() { reset(); }
+
+  // Returns the managed pointer.
+  operator pointer() const noexcept { return ptr; }
+  // Returns the managed pointer.
+  pointer operator->() const noexcept { return ptr; }
+  // Returns the managed pointer.
+  pointer get() const noexcept { return ptr; }
+
+  // Checks whether there is a managed pointer.
+  explicit operator bool() const noexcept { return ptr != pointer(); }
+
+  // Replace the managed pointer, only releasing returning the old one.
+  pointer set(pointer p = pointer()) noexcept {
+    return ptr.exchange(p, std::memory_order_acquire);
+  }
+  // Return the managed pointer and release its ownership.
+  pointer release() noexcept { return set(pointer()); }
+
+  // Move managed pointer from @source, iff the managed pointer equals
+  // @expected.
+  bool compare_exchange(pointer expected,
+                        atomic_unique_ptr<T>& source) noexcept {
+    if (ptr.compare_exchange_strong(expected, source.ptr,
+                                    std::memory_order_acq_rel)) {
+      source.release();
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+ private:
+  std::atomic<pointer> ptr;
+};
 
 class Node;
 class Edge {
@@ -100,12 +142,6 @@ struct Eval {
   float ml;
 };
 
-// Forward declare EvalResult if needed (depends on neural/network.h)
-namespace neural {
-struct EvalResult;
-}
-using EvalResult = neural::EvalResult; // Alias for convenience
-
 class EdgeAndNode;
 template <bool is_const>
 class Edge_Iterator;
@@ -114,7 +150,7 @@ template <bool is_const>
 class VisitedNode_Iterator;
 
 typedef std::list<uint64_t> GCQueue; // Defined here, likely from nodetree.h previously
-class NodeTree; // Forward declaration
+// Removed NodeTree class definition
 
 class Node {
  public:
@@ -295,7 +331,7 @@ class Node {
   // (AKA virtual loss.) How many threads currently process this node (started
   // but not finished). This value is added to n during selection which node
   // to pick in MCTS, and also when selecting the best move.
-  uint32_t n_in_flight_ = 0;
+  std::atomic_uint32_t n_in_flight_ = 0; // Changed to atomic
 
   // 2 byte fields.
   // Index of this node is parent's edge list.
@@ -618,37 +654,6 @@ inline VisitedNode_Iterator<false> Node::VisitedNodes() {
   return {*this, child_.get()};
 }
 
-class NodeTree {
- public:
-  ~NodeTree() { DeallocateTree(); }
-  // Adds a move to current_head_.
-  void MakeMove(Move move);
-  // Resets the current head to ensure it doesn't carry over details from a
-  // previous search.
-  void TrimTreeAtHead();
-  // Sets the position in a tree, trying to reuse the tree.
-  // If @auto_garbage_collect, old tree is garbage collected immediately. (may
-  // take some milliseconds)
-  // Returns whether a new position the same game as old position (with some
-  // moves added). Returns false, if the position is completely different,
-  // or if it's shorter than before.
-  bool ResetToPosition(const std::string& starting_fen,
-                       const std::vector<std::string>& moves);
-  bool ResetToPosition(const GameState& pos);
-  const Position& HeadPosition() const { return history_.Last(); }
-  int GetPlyCount() const { return HeadPosition().GetGamePly(); }
-  bool IsBlackToMove() const { return HeadPosition().IsBlackToMove(); }
-  Node* GetCurrentHead() const { return current_head_; }
-  Node* GetGameBeginNode() const { return gamebegin_node_.get(); }
-  const PositionHistory& GetPositionHistory() const { return history_; }
-
- private:
-  void DeallocateTree();
-  // A node which to start search from.
-  Node* current_head_ = nullptr;
-  // Root node of a game tree.
-  std::unique_ptr<Node> gamebegin_node_;
-  PositionHistory history_;
-};
+// REMOVED NodeTree definition from here
 
 }  // namespace lczero
