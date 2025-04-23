@@ -582,8 +582,9 @@ void SearchParams::Populate(OptionsParser* options) {
   options->Add<BoolOption>(kSearchSpinBackoffId) = false;
 
   // --- Root Beam Search ADDED ---
-  options->Add<IntOption>(kRootBeamMaxWidthId, 0, 500) = 0; // Default 0 (disabled)
+  // options->Add<IntOption>(kRootBeamWidthId, 0, 500) = 0; // Use MaxWidth instead
   options->Add<IntOption>(kRootBeamMinWidthId, 0, 500) = 0; // Default 0 (dynamic disabled)
+  options->Add<IntOption>(kRootBeamMaxWidthId, 0, 500) = 0; // Default 0 (beam disabled)
   options->Add<IntOption>(kRootBeamUpdateThresholdId, 0, 1000000) = 100;
   options->Add<FloatOption>(kRootBeamUpdateIntervalFactorId, 1.0f, 10.0f) = 1.0f; // Default 1.0 (fixed interval)
   // --- END Root Beam Search ADDED ---
@@ -612,10 +613,10 @@ void SearchParams::Populate(OptionsParser* options) {
   options->HideOption(kWDLDrawRateTargetId);
   options->HideOption(kWDLBookExitBiasId);
   // --- Root Beam Search - Make relevant ones visible for tuning ---
-  // options->HideOption(kRootBeamMinWidthId);  // Keep visible if tuning dynamic width
-  // options->HideOption(kRootBeamMaxWidthId); // Keep visible
+  // options->HideOption(kRootBeamMinWidthId);
+  // options->HideOption(kRootBeamMaxWidthId);
   // options->HideOption(kRootBeamUpdateThresholdId);
-  // options->HideOption(kRootBeamUpdateIntervalFactorId); // Keep visible if tuning interval
+  // options->HideOption(kRootBeamUpdateIntervalFactorId);
   // --- END Root Beam Search ---
 }
 
@@ -689,6 +690,7 @@ SearchParams::SearchParams(const OptionsDict& options)
       kWDLMaxS(options.Get<float>(kWDLMaxSId)),
       kWDLEvalObjectivity(options.Get<float>(kWDLEvalObjectivityId)),
       kMaxOutOfOrderEvalsFactor(options.Get<float>(kMaxOutOfOrderEvalsFactorId)),
+      // kMaxOutOfOrderEvals initialized in constructor body
       kNpsLimit(options.Get<float>(kNpsLimitId)),
       kSolidTreeThreshold(options.Get<int>(kSolidTreeThresholdId)),
       kTaskWorkersPerSearchWorker(
@@ -711,17 +713,16 @@ SearchParams::SearchParams(const OptionsDict& options)
           options.Get<float>(kMaxCollisionVisitsScalingPowerId)),
       kSearchSpinBackoff(options_.Get<bool>(kSearchSpinBackoffId)),
       // --- Root Beam Search ADDED ---
-      kRootBeamWidth(options.Get<int>(kRootBeamWidthId)), // Keep old name if needed
+      kRootBeamWidth(options.Get<int>(kRootBeamWidthId)), // Kept old name for potential internal use
       kRootBeamMinWidth(options.Get<int>(kRootBeamMinWidthId)),
       kRootBeamMaxWidth(options.Get<int>(kRootBeamMaxWidthId)),
       kRootBeamUpdateThreshold(options.Get<int>(kRootBeamUpdateThresholdId)),
-      kRootBeamUpdateIntervalFactor(options.Get<float>(kRootBeamUpdateIntervalFactorId)) // Changed type
+      kRootBeamUpdateIntervalFactor(options.Get<float>(kRootBeamUpdateIntervalFactorId))
       // --- END Root Beam Search ADDED ---
        { // Start of constructor body
            // Calculate kMaxOutOfOrderEvals here
-           const int effective_batch_size = (kMiniBatchSize > 0) ? kMiniBatchSize : DEFAULT_MAX_PREFETCH; // Use default if minibatch is 0
+           const int effective_batch_size = (kMiniBatchSize > 0) ? kMiniBatchSize : DEFAULT_MAX_PREFETCH; // Use default if 0
            kMaxOutOfOrderEvals = std::max(1, static_cast<int>(kMaxOutOfOrderEvalsFactor * effective_batch_size));
        } // End of constructor body
 
-} // namespace classic namespace removed
 } // namespace lczero
