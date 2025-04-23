@@ -22,9 +22,10 @@
 #include <vector> // Use std::vector
 
 #include "neural/encoder.h"
-#include "neural/network.h" // Include for BackendComputation etc.
+#include "neural/network.h" // Include for EvalResult etc.
 #include "utils/exception.h"
 #include "utils/hashcat.h"
+#include "chess/position.h" // Included for PositionHistory/MoveList
 
 namespace lczero { // No classic namespace
 
@@ -435,88 +436,6 @@ std::string EdgeAndNode::DebugString() const {
          (node_ ? node_->DebugString() : "(no node)");
 }
 
-/////////////////////////////////////////////////////////////////////////
-// NodeTree
-/////////////////////////////////////////////////////////////////////////
-
-void NodeTree::MakeMove(Move move) {
-  Node* new_head = nullptr;
-  for (auto& n : current_head_->Edges()) {
-    if (n.GetMove() == move) {
-      new_head = n.GetOrSpawnNode(current_head_);
-      // Ensure head is not terminal, so search can extend or visit children of
-      // "terminal" positions, e.g., WDL hits, converted terminals, 3-fold draw.
-      if (new_head->IsTerminal()) new_head->MakeNotTerminal();
-      break;
-    }
-  }
-  current_head_->ReleaseChildrenExceptOne(new_head);
-  new_head = current_head_->child_.get();
-  current_head_ =
-      new_head ? new_head : current_head_->CreateSingleChildNode(move);
-  history_.Append(move);
-}
-
-void NodeTree::TrimTreeAtHead() {
-  // If solid, this will be empty before move and will be moved back empty
-  // afterwards which is fine.
-  auto tmp = std::move(current_head_->sibling_);
-  // Send dependent nodes for GC instead of destroying them immediately.
-  current_head_->ReleaseChildren();
-  *current_head_ = Node(current_head_->GetParent(), current_head_->index_);
-  current_head_->sibling_ = std::move(tmp);
-}
-
-bool NodeTree::ResetToPosition(const GameState& pos) {
-  if (gamebegin_node_ && (history_.Starting() != pos.startpos)) {
-    // Completely different position.
-    DeallocateTree();
-  }
-
-  if (!gamebegin_node_) {
-    gamebegin_node_ = std::make_unique<Node>(nullptr, 0);
-  }
-
-  history_.Reset(pos.startpos);
-
-  Node* old_head = current_head_;
-  current_head_ = gamebegin_node_.get();
-  bool seen_old_head = (gamebegin_node_.get() == old_head);
-  for (const Move m : pos.moves) {
-    MakeMove(m);
-    if (old_head == current_head_) seen_old_head = true;
-  }
-
-  // MakeMove guarantees that no siblings exist; but, if we didn't see the old
-  // head, it means we might have a position that was an ancestor to a
-  // previously searched position, which means that the current_head_ might
-  // retain old n_ and q_ (etc) data, even though its old children were
-  // previously trimmed; we need to reset current_head_ in that case.
-  if (!seen_old_head) TrimTreeAtHead();
-  return seen_old_head;
-}
-
-bool NodeTree::ResetToPosition(const std::string& starting_fen,
-                               const std::vector<std::string>& moves) {
-  GameState state;
-  state.startpos = Position::FromFen(starting_fen);
-  ChessBoard cur_board = state.startpos.GetBoard();
-  state.moves.reserve(moves.size());
-  for (const auto& move : moves) {
-    Move m = cur_board.ParseMove(move);
-    state.moves.push_back(m);
-    cur_board.ApplyMove(m);
-    cur_board.Mirror();
-  }
-  return ResetToPosition(state);
-}
-
-void NodeTree::DeallocateTree() {
-  // Same as gamebegin_node_.reset(), but actual deallocation will happen in
-  // GC thread.
-  gNodeGc.AddToGcQueue(std::move(gamebegin_node_));
-  gamebegin_node_ = nullptr;
-  current_head_ = nullptr;
-}
+// Removed NodeTree definitions from node.cc
 
 }  // namespace lczero
