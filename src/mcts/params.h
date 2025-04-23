@@ -1,7 +1,7 @@
 /*
   This file is part of Leela Chess Zero.
   Copyright (C) 2018-2023 The LCZero Authors
-  ... (License remains the same) ...
+  ... (License header) ...
 */
 
 #pragma once
@@ -9,7 +9,7 @@
 #include "neural/encoder.h"
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
-#include "neural/shared_params.h" // May or may not be needed, keep if used
+// #include "neural/shared_params.h" // REMOVED THIS INCLUDE
 
 namespace lczero { // No classic namespace
 
@@ -35,7 +35,7 @@ class SearchParams {
 
   // Parameter getters.
   int GetMiniBatchSize() const { return kMiniBatchSize; }
-   int GetMaxPrefetchBatch() const { // Kept getter from classic version
+   int GetMaxPrefetchBatch() const {
     return options_.Get<int>(kMaxPrefetchBatchId);
   }
   float GetCpuct(bool at_root) const { return at_root ? kCpuctAtRoot : kCpuct; }
