@@ -23,6 +23,8 @@
 #include "utils/fastmath.h"
 #include "utils/random.h"
 #include "utils/spinhelper.h"
+#include "neural/network.h" // Make sure Network is included
+#include "neural/network_computation.h" // For NetworkComputation
 
 namespace lczero { // No classic namespace
 
@@ -160,7 +162,7 @@ inline float ComputeCpuct(const SearchParams& params, uint32_t N,
 
 }  // namespace
 
-Search::Search(const NodeTree& tree, Backend* backend, // Changed network to backend
+Search::Search(const NodeTree& tree, Network* network, // Changed from Backend*
                std::unique_ptr<UciResponder> uci_responder,
                const MoveList& searchmoves,
                std::chrono::steady_clock::time_point start_time,
@@ -172,8 +174,8 @@ Search::Search(const NodeTree& tree, Backend* backend, // Changed network to bac
       root_node_(tree.GetCurrentHead()),
       syzygy_tb_(syzygy_tb),
       played_history_(tree.GetPositionHistory()),
-      backend_(backend), // Changed network to backend
-      backend_attributes_(backend->GetAttributes()),
+      network_(network), // Changed from backend_
+      network_capabilities_(network->GetCapabilities()), // Changed from backend_attributes_
       params_(options), // Initialize params_ member
       searchmoves_(searchmoves),
       start_time_(start_time),
@@ -262,6 +264,7 @@ void Search::UpdateRootBeam(Node* root_node) REQUIRES(nodes_mutex_) {
 
     const int num_children = root_node->GetNumEdges(); // Use GetNumEdges as it reflects potential children
 
+
     if (num_children <= (use_dynamic_k ? min_k : max_k)) { // Use min_k if dynamic, else max_k
         // Beam is wider than or equal to number of children, no restriction needed
         root_beam_indices_.clear(); // Signal no restriction
@@ -275,7 +278,7 @@ void Search::UpdateRootBeam(Node* root_node) REQUIRES(nodes_mutex_) {
     // Calculate PUCT scores for ranking
     const float draw_score = GetDrawScore(/* is_odd_depth= */ false); // Root is even depth
     const float fpu = GetFpu(params_, root_node, /* is_root= */ true, draw_score);
-    const MEvaluator m_evaluator = backend_attributes_.has_mlh ? MEvaluator(params_, root_node) : MEvaluator();
+    const MEvaluator m_evaluator = network_capabilities_.has_mlh ? MEvaluator(params_, root_node) : MEvaluator(); // Use network_capabilities_
 
     int idx = 0;
     for (const auto& edge : root_node->Edges()) {
@@ -477,7 +480,7 @@ void Search::SendUciInfo() REQUIRES(nodes_mutex_) REQUIRES(counters_mutex_) {
       const float centipawn_fallback_threshold = 0.996f;
       float centipawn_score = 45 * tan(1.56728071628 * wl); // Adjusted factor
       uci_info.score =
-          backend_attributes_.has_wdl && mu_uci != 0.0f && // Check backend_attributes_
+          network_capabilities_.has_wdl && mu_uci != 0.0f && // Use network_capabilities_
                   std::abs(wl) + d < centipawn_fallback_threshold &&
                   (std::abs(mu_uci) < 1.0f ||
                    std::abs(centipawn_score) < std::abs(100 * mu_uci))
@@ -497,7 +500,7 @@ void Search::SendUciInfo() REQUIRES(nodes_mutex_) REQUIRES(counters_mutex_) {
       wdl_d = 0;
     }
     uci_info.wdl = ThinkingInfo::WDL{wdl_w, wdl_d, wdl_l};
-    if (backend_attributes_.has_mlh) {
+    if (network_capabilities_.has_mlh) { // Use network_capabilities_
       uci_info.moves_left = static_cast<int>(
           (1.0f + edge.GetM(1.0f + root_node_->GetM())) / 2.0f);
     }
@@ -630,7 +633,7 @@ std::vector<std::string> Search::GetVerboseStats(Node* node) const {
     if (n && n->IsTerminal()) {
       v = n->GetQ(sign * draw_score);
     } else {
-      std::optional<EvalResult> nneval = GetCachedNNEval(n);
+      std::optional<EvalResult> nneval = GetCachedNNEval(n); // Use updated EvalResult type
       if (nneval) v = -nneval->q;
     }
     if (v) {
@@ -655,7 +658,7 @@ std::vector<std::string> Search::GetVerboseStats(Node* node) const {
 
   std::vector<std::string> infos;
   const auto m_evaluator =
-      backend_attributes_.has_mlh ? MEvaluator(params_, node) : MEvaluator();
+      network_capabilities_.has_mlh ? MEvaluator(params_, node) : MEvaluator(); // Use network_capabilities_
   for (const auto& edge : edges) {
     float Q = edge.GetQ(fpu, draw_score);
     float M = m_evaluator.GetMUtility(edge, Q);
@@ -741,12 +744,14 @@ std::vector<Move> GetNodeLegalMoves(const Node* node, const ChessBoard& board) {
 }
 }  // namespace
 
-std::optional<EvalResult> Search::GetCachedNNEval(const Node* node) const {
+// Adjusted return type to match Network::Output
+std::optional<Network::Output> Search::GetCachedNNEval(const Node* node) const {
   if (!node) return {};
   PositionHistory history = GetPositionHistoryAtNode(node);
   std::vector<Move> legal_moves =
       GetNodeLegalMoves(node, history.Last().GetBoard());
-  return backend_->GetCachedEvaluation(
+  // Use network_->GetCachedOutput instead of backend_->GetCachedEvaluation
+  return network_->GetCachedOutput(
       EvalPosition{history.GetPositions(), legal_moves});
 }
 
@@ -1043,8 +1048,8 @@ EdgeAndNode Search::GetBestRootChildWithTemperature(float temperature) const {
 void Search::StartThreads(size_t how_many) {
   Mutex::Lock lock(threads_mutex_);
   if (how_many == 0 && threads_.size() == 0) {
-    how_many = backend_attributes_.suggested_num_search_threads +
-               !backend_attributes_.runs_on_cpu;
+    how_many = network_capabilities_.suggested_num_search_threads + // Use network_capabilities_
+               !network_capabilities_.runs_on_cpu; // Use network_capabilities_
   }
   thread_count_.store(how_many, std::memory_order_release);
   // First thread is a watchdog thread.
@@ -1104,7 +1109,7 @@ void Search::PopulateCommonIterationStats(IterationStats* stats) {
     float max_q_plus_m = -1000;
     uint64_t max_n = 0;
     bool max_n_has_max_q_plus_m = true;
-    const auto m_evaluator = backend_attributes_.has_mlh
+    const auto m_evaluator = network_capabilities_.has_mlh // Use network_capabilities_
                                  ? MEvaluator(params_, root_node_)
                                  : MEvaluator();
     for (const auto& edge : root_node_->Edges()) {
@@ -1215,7 +1220,8 @@ void Search::CancelSharedCollisions() REQUIRES(nodes_mutex_) {
     Node* node = entry.first;
     for (node = node->GetParent(); node != root_node_->GetParent();
          node = node->GetParent()) {
-      node->CancelScoreUpdate(entry.second);
+        if (!node) break; // Added safety check
+        node->CancelScoreUpdate(entry.second);
     }
   }
   shared_collisions_.clear();
@@ -1310,7 +1316,7 @@ void SearchWorker::RunTasks(int tid) {
 
 void SearchWorker::ExecuteOneIteration() {
   // 1. Initialize internal structures.
-  InitializeIteration(search_->backend_->CreateComputation());
+  InitializeIteration(search_->network_->CreateComputation()); // Use network_
 
   if (params_.GetMaxConcurrentSearchers() != 0) {
     std::unique_ptr<SpinHelper> spin_helper;
@@ -1400,7 +1406,7 @@ void SearchWorker::ExecuteOneIteration() {
 // 1. Initialize internal structures.
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 void SearchWorker::InitializeIteration(
-    std::unique_ptr<BackendComputation> computation) {
+    std::unique_ptr<NetworkComputation> computation) { // Changed type
   computation_ = std::move(computation);
   minibatch_.clear();
   minibatch_.reserve(2 * target_minibatch_size_);
@@ -1545,6 +1551,7 @@ void SearchWorker::GatherMinibatch() {
           for (node = node->GetParent();
                node != search_->root_node_->GetParent();
                node = node->GetParent()) {
+               if (!node) break; // Safety check
             node->CancelScoreUpdate(minibatch_[i].multivisit);
           }
           minibatch_.erase(minibatch_.begin() + i);
@@ -1573,6 +1580,7 @@ void SearchWorker::GatherMinibatch() {
           for (node = node->GetParent();
                node != search_->root_node_->GetParent();
                node = node->GetParent()) {
+               if (!node) break; // Safety check
             node->IncrementNInFlight(extra);
           }
         }
@@ -1606,13 +1614,14 @@ void SearchWorker::ProcessPickedTask(int start_idx, int end_idx,
                        std::back_inserter(legal_moves),
                        [](const auto& edge) { return edge.GetMove(); });
         picked_node.eval->p.resize(legal_moves.size());
+        // Use NetworkComputation::AddInput and Network::Output
         picked_node.is_cache_hit = computation_->AddInput(
                                        EvalPosition{
                                            .pos = history.GetPositions(),
                                            .legal_moves = legal_moves,
                                        },
-                                       picked_node.eval->AsPtr()) ==
-                                   BackendComputation::FETCHED_IMMEDIATELY;
+                                       picked_node.eval.get()) == // Pass pointer
+                                   NetworkComputation::FETCHED_IMMEDIATELY;
       }
     }
     if (params_.GetOutOfOrderEval() && picked_node.CanEvalOutOfOrder()) {
@@ -1646,7 +1655,7 @@ int SearchWorker::WaitForTasks() {
 
 void SearchWorker::PickNodesToExtend(int collision_limit) {
   ResetTasks();
-  if (task_workers_ > 0 && !search_->backend_attributes_.runs_on_cpu) {
+  if (task_workers_ > 0 && !search_->network_capabilities_.runs_on_cpu) { // Use network_capabilities_
     // While nothing is ready yet - wake the task runners so they are ready to
     // receive quickly.
     Mutex::Lock lock(picking_tasks_mutex_);
@@ -2395,8 +2404,8 @@ bool SearchWorker::AddNodeToComputation(Node* node) {
     moves = history_.Last().GetBoard().GenerateLegalMoves();
   }
   return computation_->AddInput(EvalPosition{history_.GetPositions(), moves},
-                                EvalResultPtr{}) ==
-         BackendComputation::FETCHED_IMMEDIATELY;
+                                EvalResultPtr{}) == // Use EvalResultPtr{}
+         NetworkComputation::FETCHED_IMMEDIATELY; // Use NetworkComputation enum
 }
 
 
