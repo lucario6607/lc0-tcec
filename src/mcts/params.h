@@ -35,14 +35,14 @@ class SearchParams {
 
   // Parameter getters.
   int GetMiniBatchSize() const { return kMiniBatchSize; }
-  int GetMaxPrefetchBatch() const { // Kept getter from classic version
+   int GetMaxPrefetchBatch() const { // Kept getter from classic version
     return options_.Get<int>(kMaxPrefetchBatchId);
   }
   float GetCpuct(bool at_root) const { return at_root ? kCpuctAtRoot : kCpuct; }
   float GetCpuctBase(bool at_root) const {
     return at_root ? kCpuctBaseAtRoot : kCpuctBase;
   }
-  float GetCpuctExponent(bool at_root) const {
+   float GetCpuctExponent(bool at_root) const {
     return at_root ? kCpuctExponentAtRoot : kCpuctExponent;
   }
   float GetCpuctFactor(bool at_root) const {
@@ -275,7 +275,7 @@ class SearchParams {
   const float kWDLMaxS;
   const float kWDLEvalObjectivity;
   const float kMaxOutOfOrderEvalsFactor;
-  uint32_t kMaxOutOfOrderEvals; // Changed to non-const
+  uint32_t kMaxOutOfOrderEvals; // Made non-const, calculated in constructor
   const float kNpsLimit;
   const int kSolidTreeThreshold;
   const int kTaskWorkersPerSearchWorker;
@@ -298,5 +298,4 @@ class SearchParams {
 
 };
 
-}  // namespace classic namespace removed
 }  // namespace lczero
