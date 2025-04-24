@@ -38,8 +38,8 @@
 #include <iomanip> // For setprecision
 
 #include "chess/position.h"
-#include "config.h"
-#include "mcts/node.h" // <<< ADDED THIS INCLUDE
+#include "config.h" // <<< ADDED THIS INCLUDE
+#include "mcts/node.h" // Include for NodeTree definition
 #include "mcts/params.h"
 #include "neural/encoder.h"
 #include "neural/factory.h"
@@ -49,6 +49,7 @@
 #include "utils/parallel_helpers.h"
 #include "utils/string.h"
 #include "utils/thread_pool.h"
+#include "utils/hashcat.h" // Added for utils::HashCat
 
 namespace lczero {
 
@@ -88,15 +89,16 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
   tree.ResetToPosition(option_dict_.Get<std::string>(kFenId), {});
   const auto& history = tree.GetPositionHistory();
   const auto input_format = network->GetCapabilities().input_format;
+  // Assuming EncodePositionHistory exists and works correctly after position.cc fixes
   std::vector<Position::InputPlanes> planes =
-      EncodePositionHistory(input_format, history, history.Last(), Position::InputPlanes::kTotalHistory); // Ensure history planes are included
+      EncodePositionHistory(input_format, history, history.Last(), Position::InputPlanes::kTotalHistory);
 
   // Total test duration 10 seconds.
   const auto benchmark_duration = std::chrono::seconds(10);
   const auto start_time = std::chrono::steady_clock::now();
 
   size_t total_samples = 0;
-  size_t total_batches = 0;
+  size_t current_total_batches = 0; // Use local variable
 
   while (true) {
     auto current_time = std::chrono::steady_clock::now();
@@ -107,13 +109,15 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
     computation->Reserve(batch_size);
     for (int i = 0; i < batch_size; i++) {
       // Use the pre-encoded planes
-      computation->AddInput(utils::HashCat(history.Last().Hash(), i), planes); // Use unique hash for each input if needed
+      // Use a unique hash for each sample if needed, otherwise use base hash
+      uint64_t sample_hash = utils::HashCat(history.Last().Hash(), static_cast<uint64_t>(i));
+      computation->AddInput(sample_hash, planes);
     }
 
     // Compute batch.
     computation->ComputeBlocking(1.0f); // Use appropriate softmax temp if needed
 
-    total_batches++;
+    current_total_batches++;
     total_samples += batch_size;
   }
 
@@ -123,11 +127,11 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
       static_cast<float>(total_samples) /
       std::chrono::duration_cast<std::chrono::duration<float>>(time_delta)
           .count() : 0.0f;
-  const float batch_latency = (total_batches > 0) ?
+  const float batch_latency = (current_total_batches > 0) ? // Use local batch count
       static_cast<float>(
           std::chrono::duration_cast<std::chrono::microseconds>(time_delta)
               .count()) /
-      total_batches : 0.0f;
+      current_total_batches : 0.0f;
 
 
   nps_stats[thread_id] = nps;
@@ -141,7 +145,7 @@ void BackendBenchmark::Run() {
 
   const int num_threads = option_dict_.Get<int>(NeuralFactory::kMaxThreadsId);
   std::vector<float> nps_stats(num_threads);
-  std::vector<float> batch_stats(num_threads);
+  std::vector<float> batch_stats(num_threads); // This now stores latency per thread
   std::vector<int> sample_stats(num_threads);
 
   // Start N benchmark threads.
