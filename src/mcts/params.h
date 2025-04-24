@@ -28,14 +28,18 @@
 #pragma once
 
 #include <vector> // Added for beam search move list
-#include "neural/encoder.h"
+#include "neural/encoder.h" // Keep this if needed by other parts of params.h
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
-#include "neural/shared_params.h" // Ensure this is included
+// #include "neural/shared_params.h" // REMOVED - Included in params.cc where needed
+
+// Forward declare FillEmptyHistory if needed here, otherwise rely on params.cc include
+// enum class FillEmptyHistory; // Example forward declaration if needed
 
 namespace lczero {
 
 enum class ContemptMode { PLAY, WHITE, BLACK, NONE };
+enum class FillEmptyHistory; // Forward declaration
 
 class SearchParams {
  public:
@@ -102,6 +106,7 @@ class SearchParams {
   int GetMaxCollisionEvents() const { return kMaxCollisionEvents; }
   int GetMaxCollisionVisits() const { return kMaxCollisionVisits; }
   bool GetOutOfOrderEval() const { return kOutOfOrderEval; }
+  uint32_t GetMaxOutOfOrderEvals() const { return kMaxOutOfOrderEvals; } // Use uint32_t if changed in .cc
   bool GetStickyEndgames() const { return kStickyEndgames; }
   bool GetSyzygyFastPlay() const { return kSyzygyFastPlay; }
   int GetMultiPv() const { return options_.Get<int>(kMultiPvId); }
@@ -109,7 +114,7 @@ class SearchParams {
   std::string GetScoreType() const {
     return options_.Get<std::string>(kScoreTypeId);
   }
-  FillEmptyHistory GetHistoryFill() const { return kHistoryFill; }
+  FillEmptyHistory GetHistoryFill() const; // Declaration only
   float GetMovesLeftMaxEffect() const { return kMovesLeftMaxEffect; }
   float GetMovesLeftThreshold() const { return kMovesLeftThreshold; }
   float GetMovesLeftSlope() const { return kMovesLeftSlope; }
@@ -133,7 +138,6 @@ class SearchParams {
   float GetWDLRescaleDiff() const { return kWDLRescaleParams.diff; }
   float GetWDLMaxS() const { return kWDLMaxS; } // Getter added/verified
   float GetWDLEvalObjectivity() const { return kWDLEvalObjectivity; }
-  uint32_t GetMaxOutOfOrderEvals() const { return kMaxOutOfOrderEvals; } // Type changed later
   float GetNpsLimit() const { return kNpsLimit; }
 
   int GetTaskWorkersPerSearchWorker() const {
@@ -256,6 +260,7 @@ class SearchParams {
   static const OptionId kMaxCollisionEventsId;
   static const OptionId kMaxCollisionVisitsId;
   static const OptionId kOutOfOrderEvalId;
+  static const OptionId kMaxOutOfOrderEvalsId; // This is now factor in .cc
   static const OptionId kStickyEndgamesId;
   static const OptionId kSyzygyFastPlayId;
   static const OptionId kMultiPvId;
@@ -281,7 +286,6 @@ class SearchParams {
   static const OptionId kWDLDrawRateTargetId;
   static const OptionId kWDLDrawRateReferenceId;
   static const OptionId kWDLBookExitBiasId;
-  static const OptionId kMaxOutOfOrderEvalsId; // Changed type/name later
   static const OptionId kNpsLimitId;
   static const OptionId kTaskWorkersPerSearchWorkerId;
   static const OptionId kMinimumWorkSizeForProcessingId;
@@ -370,6 +374,7 @@ class SearchParams {
   const int kMaxCollisionEvents;
   const int kMaxCollisionVisits;
   const bool kOutOfOrderEval;
+  const uint32_t kMaxOutOfOrderEvals; // Ensure type matches .cc
   const bool kStickyEndgames;
   const bool kSyzygyFastPlay;
   const FillEmptyHistory kHistoryFill;
@@ -387,7 +392,6 @@ class SearchParams {
   const WDLRescaleParams kWDLRescaleParams;
   const float kWDLEvalObjectivity;
   const float kWDLMaxS; // Member added/verified
-  const uint32_t kMaxOutOfOrderEvals; // Type changed later
   const float kNpsLimit;
   const int kTaskWorkersPerSearchWorker;
   const int kMinimumWorkSizeForProcessing;
