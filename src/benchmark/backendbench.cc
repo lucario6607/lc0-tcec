@@ -38,7 +38,7 @@
 #include <iomanip> // For setprecision
 
 #include "chess/position.h"
-#include "config.h" // <<< ADDED THIS INCLUDE
+#include "config.h" // <<< Ensure this is included and found by build system
 #include "mcts/node.h" // Include for NodeTree definition
 #include "mcts/params.h"
 #include "neural/encoder.h"
@@ -49,7 +49,7 @@
 #include "utils/parallel_helpers.h"
 #include "utils/string.h"
 #include "utils/thread_pool.h"
-#include "utils/hashcat.h" // Added for utils::HashCat
+#include "utils/hashcat.h"
 
 namespace lczero {
 
@@ -58,7 +58,7 @@ const OptionId kFenId{"fen", "Fen", "Fen string used for benchmarking"};
 }
 
 void BackendBenchmark::RegisterOptions(OptionsParser* parser) {
-  parser->Add<StringOption>(kFenId) = kStartingFen;
+  parser->Add<StringOption>(kFenId) = kStartingFen; // kStartingFen from config.h
 }
 
 BackendBenchmark::BackendBenchmark(const OptionsDict& option_dict)
@@ -84,12 +84,10 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
   network->InitThread(thread_id);
 
   // Initialize input features.
-  // Need SearchParams to initialize NodeTree
-  NodeTree tree(params_);
+  NodeTree tree(params_); // Pass params_
   tree.ResetToPosition(option_dict_.Get<std::string>(kFenId), {});
   const auto& history = tree.GetPositionHistory();
   const auto input_format = network->GetCapabilities().input_format;
-  // Assuming EncodePositionHistory exists and works correctly after position.cc fixes
   std::vector<Position::InputPlanes> planes =
       EncodePositionHistory(input_format, history, history.Last(), Position::InputPlanes::kTotalHistory);
 
@@ -108,14 +106,12 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
     auto computation = network->NewComputation();
     computation->Reserve(batch_size);
     for (int i = 0; i < batch_size; i++) {
-      // Use the pre-encoded planes
-      // Use a unique hash for each sample if needed, otherwise use base hash
       uint64_t sample_hash = utils::HashCat(history.Last().Hash(), static_cast<uint64_t>(i));
       computation->AddInput(sample_hash, planes);
     }
 
     // Compute batch.
-    computation->ComputeBlocking(1.0f); // Use appropriate softmax temp if needed
+    computation->ComputeBlocking(1.0f);
 
     current_total_batches++;
     total_samples += batch_size;
@@ -127,7 +123,7 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
       static_cast<float>(total_samples) /
       std::chrono::duration_cast<std::chrono::duration<float>>(time_delta)
           .count() : 0.0f;
-  const float batch_latency = (current_total_batches > 0) ? // Use local batch count
+  const float batch_latency = (current_total_batches > 0) ?
       static_cast<float>(
           std::chrono::duration_cast<std::chrono::microseconds>(time_delta)
               .count()) /
@@ -135,7 +131,7 @@ void BackendBenchmark::Benchmark(int thread_id, int num_threads,
 
 
   nps_stats[thread_id] = nps;
-  batch_stats[thread_id] = batch_latency;
+  batch_stats[thread_id] = batch_latency; // Store latency (microseconds)
   sample_stats[thread_id] = total_samples;
 }
 
@@ -151,7 +147,6 @@ void BackendBenchmark::Run() {
   // Start N benchmark threads.
   utils::Waitable waitable;
   for (int i = 0; i < num_threads; i++) {
-    // Use ThreadPool for cleaner thread management if available, otherwise raw threads
     utils::internal::WorkerData* wd = new utils::internal::WorkerData;
     wd->th = std::thread(
         [&](int thread_id, std::vector<float>& nps, std::vector<float>& batch,
@@ -169,19 +164,14 @@ void BackendBenchmark::Run() {
   // Wait for all threads to finish.
   waitable.Wait();
 
-  total_samples_ = std::accumulate(sample_stats.begin(), sample_stats.end(), 0LL); // Use 0LL for long long
-  // total_batches_ calculation seems off, should be sum of batches processed per thread
-  // Recalculate based on samples and batch size? Or pass back batch count?
-  // Let's assume batch_stats holds latency, calculate avg batch latency differently.
-  total_batches_ = 0; // Reset this as it was misused
+  total_samples_ = std::accumulate(sample_stats.begin(), sample_stats.end(), 0LL);
   float total_latency_sum = std::accumulate(batch_stats.begin(), batch_stats.end(), 0.0f);
-
-
   total_nps_ = std::accumulate(nps_stats.begin(), nps_stats.end(), 0.0f);
 
-  average_batch_latency_ = (num_threads > 0) ? (total_latency_sum / num_threads / 1000.0f) : 0.0f; // Average latency in ms
+  // Calculate average latency in ms
+  average_batch_latency_ = (num_threads > 0) ? (total_latency_sum / num_threads / 1000.0f) : 0.0f;
 
-  // Calculate standard deviation.
+  // Calculate standard deviation for NPS
   float avg_nps = (num_threads > 0) ? (total_nps_ / num_threads) : 0.0f;
   float sumsq_nps = 0;
   for (int i = 0; i < num_threads; i++) {
@@ -189,13 +179,15 @@ void BackendBenchmark::Run() {
   }
   std_dev_nps_ = (num_threads > 0) ? std::sqrt(sumsq_nps / num_threads) : 0.0f;
 
+  // Calculate standard deviation for latency
   float avg_latency_us = average_batch_latency_ * 1000.0f; // Back to microseconds
   float sumsq_latency = 0;
   for (int i = 0; i < num_threads; i++) {
     sumsq_latency +=
         (batch_stats[i] - avg_latency_us) * (batch_stats[i] - avg_latency_us);
   }
-  std_dev_batch_latency_ = (num_threads > 0) ? (std::sqrt(sumsq_latency / num_threads) / 1000.0f) : 0.0f; // Back to ms
+  // Calculate std dev in microseconds, then convert to ms
+  std_dev_batch_latency_ = (num_threads > 0) ? (std::sqrt(sumsq_latency / num_threads) / 1000.0f) : 0.0f;
 }
 
 void BackendBenchmark::Report() {
