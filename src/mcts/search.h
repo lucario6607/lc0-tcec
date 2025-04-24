@@ -35,34 +35,32 @@
 #include <thread>
 #include <tuple>
 #include <vector>
-#include <limits> // Added for numeric_limits
+#include <limits>
 
 #include "chess/callbacks.h"
 #include "chess/uciloop.h"
-// #include "mcts/node.h" // Use forward declarations instead
-#include "mcts/params.h"
-#include "mcts/stoppers/timemgr.h"
-// #include "neural/cache.h" // Use forward declarations instead
-// #include "syzygy/syzygy.h" // Use forward declarations instead
+#include "mcts/params.h"             // Needed for SearchParams definition
+#include "mcts/stoppers/timemgr.h"   // Needs IterationStats, StoppersHints
+#include "neural/cache.h"            // <<< INCLUDE FULL DEFINITION for NNCacheLock
+#include "mcts/node.h"               // <<< INCLUDE FULL DEFINITION for Node, LowNode, EdgeAndNode, NNEval etc.
 #include "utils/logging.h"
 #include "utils/mutex.h"
 
 namespace lczero {
 
-// Forward declarations
-class NodeTree;
+// Forward declarations for types only used as pointers/references in this header
 class Network;
-class NNCache;
 class SyzygyTablebase;
-class Node;
-class LowNode; // Needed by SearchWorker::NodeToProcess
-class NNEval;  // Needed by cache.h include in search.cc
+class UciResponder;
+class SearchStopper;
+class PositionHistory; // PositionHistory is defined in position.h, included by node.h
+class MoveList;        // MoveList is defined in move.h, included by node.h
 
 typedef std::vector<std::tuple<Node*, int, int>> BackupPath;
 
 class Search {
  public:
-  // Use forward declared types in the constructor signature
+  // Constructor now uses fully defined types where needed
   Search(NodeTree* dag, Network* network,
          std::unique_ptr<UciResponder> uci_responder,
          const MoveList& searchmoves,
@@ -73,340 +71,158 @@ class Search {
 
   ~Search();
 
-  // Starts worker threads and returns immediately.
   void StartThreads(size_t how_many);
-
-  // Starts search with k threads and wait until it finishes.
   void RunBlocking(size_t threads);
-
-  // Stops search. At the end bestmove will be returned. The function is not
-  // blocking, so it returns before search is actually done.
   void Stop();
-  // Stops search, but does not return bestmove. The function is not blocking.
   void Abort();
-  // Blocks until all worker thread finish.
   void Wait();
-  // Returns whether search is active. Workers check that to see whether another
-  // search iteration is needed.
   bool IsSearchActive() const;
-
-  // Returns best move, from the point of view of white player. And also ponder.
-  // May or may not use temperature, according to the settings.
   std::pair<Move, Move> GetBestMove();
-
-  // Returns the evaluation of the best move, WITHOUT temperature. This differs
-  // from the above function; with temperature enabled, these two functions may
-  // return results from different possible moves. If @move and @is_terminal are
-  // not nullptr they are set to the best move and whether it leads to a
-  // terminal node respectively.
   Eval GetBestEval(Move* move = nullptr, bool* is_terminal = nullptr) const;
-  // Returns the total number of playouts in the search.
   std::int64_t GetTotalPlayouts() const;
-  // Returns the search parameters.
   const SearchParams& GetParams() const { return params_; }
 
-  // +++ Additions for Beam Search Features +++
-  // Returns the current root beam (const access).
   const std::vector<Move>& GetCurrentBeam() const { return current_beam_; }
   bool IsBeamActive() const { return beam_active_; }
-  // +++ End Additions +++
 
-  // If called after GetBestMove, another call to GetBestMove will have results
-  // from temperature having been applied again.
   void ResetBestMove();
-
-  // Returns NN eval for a given node from cache, if that node is cached.
-  NNCacheLock GetCachedNNEval(const PositionHistory& history) const; // Needs NNCacheLock defined
+  NNCacheLock GetCachedNNEval(const PositionHistory& history) const;
 
  private:
-  // Forward declare EdgeAndNode here if it's only used internally
-  class EdgeAndNode;
+  // EdgeAndNode is defined in node.h, no need to forward declare here
 
-  // Computes the best move, maybe with temperature (according to the settings).
-  void EnsureBestMoveKnown(); // Add function attributes later
-
-  // Returns a child with most visits, with or without temperature.
-  // NoTemperature is safe to use on non-extended nodes, while WithTemperature
-  // accepts only nodes with at least 1 visited child.
-  EdgeAndNode GetBestChildNoTemperature(Node* parent, int depth) const; // Add function attributes later
-  std::vector<EdgeAndNode> GetBestChildrenNoTemperature(Node* parent, int count, int depth) const; // Add function attributes later
-  EdgeAndNode GetBestRootChildWithTemperature(float temperature) const; // Add function attributes later
+  void EnsureBestMoveKnown() REQUIRES(nodes_mutex_) REQUIRES(counters_mutex_);
+  EdgeAndNode GetBestChildNoTemperature(Node* parent, int depth) const REQUIRES(nodes_mutex_);
+  std::vector<EdgeAndNode> GetBestChildrenNoTemperature(Node* parent, int count, int depth) const REQUIRES(nodes_mutex_);
+  EdgeAndNode GetBestRootChildWithTemperature(float temperature) const REQUIRES(nodes_mutex_);
 
   int64_t GetTimeSinceStart() const;
-  int64_t GetTimeSinceFirstBatch() const; // Add function attributes later
+  int64_t GetTimeSinceFirstBatch() const REQUIRES(counters_mutex_);
   void MaybeTriggerStop(const IterationStats& stats, StoppersHints* hints);
   void MaybeOutputInfo();
-  void SendUciInfo(); // Add function attributes later
-  // Sets stop to true and notifies watchdog thread.
-  void FireStopInternal(); // Add function attributes later
+  void SendUciInfo() REQUIRES(nodes_mutex_) REQUIRES(counters_mutex_);
+  void FireStopInternal() REQUIRES(counters_mutex_);
 
-  // +++ Additions for Beam Search Features +++
-  void UpdateRootBeam(); // Add function attributes later
-  // +++ End Additions +++
-
-  void SendMovesStats() const; // Add function attributes later
-  // Function which runs in a separate thread and watches for time and
-  // uci `stop` command;
+  void UpdateRootBeam() REQUIRES(nodes_mutex_) REQUIRES(counters_mutex_);
+  void SendMovesStats() const REQUIRES(counters_mutex_);
   void WatchdogThread();
-
-  // Fills IterationStats with global (rather than per-thread) portion of search
-  // statistics. Currently all stats there (in IterationStats) are global
-  // though.
   void PopulateCommonIterationStats(IterationStats* stats);
-
-  // Returns verbose information about given node, as vector of strings.
-  // Node can only be root or ponder (depth 1).
   std::vector<std::string> GetVerboseStats(Node* node) const;
-
-  // Returns the draw score at the root of the search. At odd depth pass true to
-  // the value of @is_odd_depth to change the sign of the draw score.
-  // Depth of a root node is 0 (even number).
   float GetDrawScore(bool is_odd_depth) const;
+  void CancelSharedCollisions() REQUIRES(nodes_mutex_);
 
-  // Ensure that all shared collisions are cancelled and clear them out.
-  void CancelSharedCollisions(); // Add function attributes later
-
-  mutable Mutex counters_mutex_; // ACQUIRED_AFTER(nodes_mutex_); // Removed for simplicity, add back if needed
-  // Tells all threads to stop.
+  mutable Mutex counters_mutex_;
   std::atomic<bool> stop_{false};
-  // Condition variable used to watch stop_ variable.
   std::condition_variable watchdog_cv_;
-  // Tells whether it's ok to respond bestmove when limits are reached.
-  // If false (e.g. during ponder or `go infinite`) the search stops but nothing
-  // is responded until `stop` uci command.
-  bool ok_to_respond_bestmove_; // GUARDED_BY(counters_mutex_) = true; // Removed for simplicity
-  // There is already one thread that responded bestmove, other threads
-  // should not do that.
-  bool bestmove_is_sent_; // GUARDED_BY(counters_mutex_) = false; // Removed for simplicity
-  // Stored so that in the case of non-zero temperature GetBestMove() returns
-  // consistent results.
-  Move final_bestmove_; // GUARDED_BY(counters_mutex_); // Removed for simplicity
-  Move final_pondermove_; // GUARDED_BY(counters_mutex_); // Removed for simplicity
-  std::unique_ptr<SearchStopper> stopper_; // GUARDED_BY(counters_mutex_); // Removed for simplicity
+  bool ok_to_respond_bestmove_;
+  bool bestmove_is_sent_;
+  Move final_bestmove_;
+  Move final_pondermove_;
+  std::unique_ptr<SearchStopper> stopper_;
 
   Mutex threads_mutex_;
-  std::vector<std::thread> threads_; // GUARDED_BY(threads_mutex_); // Removed for simplicity
+  std::vector<std::thread> threads_;
 
   Node* root_node_;
   NNCache* cache_;
   NodeTree* dag_;
   SyzygyTablebase* syzygy_tb_;
-  // Fixed positions which happened before the search.
-  const PositionHistory& played_history_; // Ensure PositionHistory is defined or forward declared
+  const PositionHistory& played_history_;
 
   Network* const network_;
-  const SearchParams params_; // Needs definition of SearchParams
-  const MoveList searchmoves_; // Needs definition of MoveList
+  const SearchParams params_;
+  const MoveList searchmoves_;
   const std::chrono::steady_clock::time_point start_time_;
   int64_t initial_visits_;
-  // root_is_in_dtz_ must be initialized before root_move_filter_.
   bool root_is_in_dtz_ = false;
-  // tb_hits_ must be initialized before root_move_filter_.
   std::atomic<int> tb_hits_{0};
-  const MoveList root_move_filter_; // Needs definition of MoveList
+  const MoveList root_move_filter_;
 
   mutable SharedMutex nodes_mutex_;
-  EdgeAndNode current_best_edge_; // GUARDED_BY(nodes_mutex_); // Removed for simplicity
-  Edge* last_outputted_info_edge_; // GUARDED_BY(nodes_mutex_) = nullptr; // Removed for simplicity
-  ThinkingInfo last_outputted_uci_info_; // GUARDED_BY(nodes_mutex_); // Removed for simplicity
-  int64_t total_playouts_; // GUARDED_BY(nodes_mutex_) = 0; // Removed for simplicity
-  int64_t total_low_nodes_; // GUARDED_BY(nodes_mutex_) = 0; // Removed for simplicity
-  int64_t total_nn_queries_; // GUARDED_BY(nodes_mutex_) = 0; // Removed for simplicity
-  int64_t total_batches_; // GUARDED_BY(nodes_mutex_) = 0; // Removed for simplicity
-  // Maximum search depth = length of longest path taken in PickNodetoExtend.
-  uint16_t max_depth_; // GUARDED_BY(nodes_mutex_) = 0; // Removed for simplicity
-  // Cumulative depth of all paths taken in PickNodetoExtend.
-  uint64_t cum_depth_; // GUARDED_BY(nodes_mutex_) = 0; // Removed for simplicity
+  EdgeAndNode current_best_edge_; // Now fully defined
+  Edge* last_outputted_info_edge_ = nullptr;
+  ThinkingInfo last_outputted_uci_info_;
+  int64_t total_playouts_ = 0;
+  int64_t total_low_nodes_ = 0;
+  int64_t total_nn_queries_ = 0;
+  int64_t total_batches_ = 0;
+  uint16_t max_depth_ = 0;
+  uint64_t cum_depth_ = 0;
 
-  std::optional<std::chrono::steady_clock::time_point> nps_start_time_; // GUARDED_BY(counters_mutex_); // Removed
+  std::optional<std::chrono::steady_clock::time_point> nps_start_time_;
 
   std::atomic<int> pending_searchers_{0};
   std::atomic<int> backend_waiting_counter_{0};
   std::atomic<int> thread_count_{0};
 
-  std::vector<std::pair<const BackupPath, int>> shared_collisions_; // GUARDED_BY(nodes_mutex_); // Removed
+  std::vector<std::pair<const BackupPath, int>> shared_collisions_;
 
   std::unique_ptr<UciResponder> uci_responder_;
-  ContemptMode contempt_mode_; // Needs definition of ContemptMode
+  ContemptMode contempt_mode_;
 
   // +++ Additions for Beam Search Features +++
-  std::vector<Move> current_beam_; // GUARDED_BY(nodes_mutex_); // Needs definition of Move
-  int current_beam_width_; // GUARDED_BY(nodes_mutex_) = 0; // Removed
-  uint64_t next_beam_update_visits_; // GUARDED_BY(counters_mutex_) = 0; // Removed
-  uint64_t last_beam_update_visits_; // GUARDED_BY(counters_mutex_) = 0; // Removed
-  bool beam_active_; // GUARDED_BY(nodes_mutex_) = false; // Removed
+  std::vector<Move> current_beam_;
+  int current_beam_width_ = 0;
+  uint64_t next_beam_update_visits_ = 0;
+  uint64_t last_beam_update_visits_ = 0;
+  bool beam_active_ = false;
   // +++ End Additions +++
 
   friend class SearchWorker;
 };
 
-// Forward declare SearchWorker members that use incomplete types
+// Forward declare SearchWorker internal types used as members
 class CachingComputation;
 
-// Single thread worker of the search engine.
-// That used to be just a function Search::Worker(), but to parallelize it
-// within one thread, have to split into stages.
 class SearchWorker {
  public:
-  SearchWorker(Search* search, const SearchParams& params, int id); // Needs SearchParams definition
+  SearchWorker(Search* search, const SearchParams& params, int id);
   ~SearchWorker();
-
-  // Runs iterations while needed.
   void RunBlocking();
-
-  // Does one full iteration of MCTS search:
-  // 1. Initialize internal structures.
-  // 2. Gather minibatch.
-  // 3.
-  // 4. Run NN computation.
-  // 5. Retrieve NN computations (and terminal values) into nodes.
-  // 6. Propagate the new nodes' information to all their parents in the tree.
-  // 7. Update the Search's status and progress information.
   void ExecuteOneIteration();
-
-  // The same operations one by one:
-  // 1. Initialize internal structures.
-  // @computation is the computation to use on this iteration.
-  void InitializeIteration(std::unique_ptr<NetworkComputation> computation); // Needs NetworkComputation definition
-
-  // 2. Gather minibatch.
+  void InitializeIteration(std::unique_ptr<NetworkComputation> computation);
   void GatherMinibatch();
-
-  // 2b. Copy collisions into shared_collisions_.
   void CollectCollisions();
-
-  // 4. Run NN computation.
   void RunNNComputation();
-
-  // 5. Retrieve NN computations (and terminal values) into nodes.
   void FetchMinibatchResults();
-
-  // 6. Propagate the new nodes' information to all their parents in the tree.
   void DoBackupUpdate();
-
-  // 7. Update the Search's status and progress information.
   void UpdateCounters();
 
  private:
-  // Forward declare internal struct NodeToProcess
-  struct NodeToProcess;
-
-  // Holds per task worker scratch data
-  struct TaskWorkspace;
-
-  struct PickTask; // Forward declare PickTask
-
-  // NodeToProcess PickNodeToExtend(int collision_limit); // Original signature likely different
-  // Adjust parameters for updating node @n and its parent low node if node is
-  // terminal or its child low node is a transposition. Also update bounds and
-  // terminal status of node @n using information from its child low node.
-  // Return true if adjustment happened.
-  bool MaybeAdjustForTerminalOrTransposition(
-      Node* n, const LowNode* nl, float& v, float& d, float& m, float& vs,
-      uint32_t& n_to_fix, float& weight_to_fix, float& v_delta, float& d_delta,
-      float& m_delta, float& vs_delta, bool& update_parent_bounds) const;
-  void DoBackupUpdateSingleNode(const NodeToProcess& node_to_process); // Requires definition of NodeToProcess
-  // Returns whether a node's bounds were set based on its children.
-  bool MaybeSetBounds(Node* p, float m, uint32_t* n_to_fix,
-                      float* weight_to_fix, float* v_delta, float* d_delta,
-                      float* m_delta, float* vs_delta) const;
-  void PickNodesToExtend(int collision_limit);
-  void PickNodesToExtendTask(const BackupPath& path, int collision_limit,
-                             PositionHistory& history, // Needs PositionHistory definition
-                             std::vector<NodeToProcess>* receiver,
-                             TaskWorkspace* workspace);
-
-  // Check if the situation described by @depth under root and @position is a
-  // safe two-fold or a draw by repetition and return the number of safe
-  // repetitions and moves_left.
-  std::pair<int, int> GetRepetitions(int depth, const Position& position); // Needs Position definition
-  // Check if there is a reason to stop picking and pick @node.
-  bool ShouldStopPickingHere(Node* node, bool is_root_node, int repetitions);
-  void ProcessPickedTask(int batch_start, int batch_end);
-  void ExtendNode(NodeToProcess& picked_node); // Requires definition of NodeToProcess
-  template <typename Computation>
-  void FetchSingleNodeResult(NodeToProcess* node_to_process, // Requires NodeToProcess definition
-                             const Computation& computation,
-                             int idx_in_computation);
-  void RunTasks(int tid);
-  void ResetTasks();
-  // Returns how many tasks there were.
-  int WaitForTasks();
-
-  Search* const search_;
-  // List of nodes to process.
-  std::vector<NodeToProcess> minibatch_; // Requires definition of NodeToProcess
-  std::unique_ptr<CachingComputation> computation_; // Needs CachingComputation definition
-  // History is reset and extended by PickNodeToExtend().
-  PositionHistory history_; // Needs PositionHistory definition
-  uint32_t number_out_of_order_ = 0;
-  const SearchParams& params_; // Needs SearchParams definition
-  std::unique_ptr<Node> precached_node_;
-  const bool moves_left_support_;
-  IterationStats iteration_stats_; // Needs IterationStats definition
-  StoppersHints latest_time_manager_hints_; // Needs StoppersHints definition
-
-  // Multigather task related fields.
-
-  Mutex picking_tasks_mutex_;
-  std::vector<PickTask> picking_tasks_; // Requires definition of PickTask
-  std::atomic<int> task_count_ = -1;
-  std::atomic<int> task_taking_started_ = 0;
-  std::atomic<int> tasks_taken_ = 0;
-  std::atomic<int> completed_tasks_ = 0;
-  std::condition_variable task_added_;
-  std::vector<std::thread> task_threads_;
-  std::vector<TaskWorkspace> task_workspaces_; // Requires definition of TaskWorkspace
-  TaskWorkspace main_workspace_; // Requires definition of TaskWorkspace
-  bool exiting_ = false;
-};
-
-// Define NodeToProcess and TaskWorkspace structs after SearchWorker declaration
-struct SearchWorker::NodeToProcess {
+  // Define internal structs here or forward declare and define in .cc if possible
+  struct NodeToProcess {
     bool IsExtendable() const {
-        return !is_collision && node && !node->IsTerminal() && !node->GetLowNode(); // Add null check for node
+        // Assuming GetLowNode exists and is accessible after including node.h
+        return !is_collision && node && !node->IsTerminal() && !node->GetLowNode();
     }
     bool IsCollision() const { return is_collision; }
     bool CanEvalOutOfOrder() const {
-        return is_tt_hit || is_cache_hit || (node && (node->IsTerminal() || node->GetLowNode())); // Add null check for node
+        // Assuming GetLowNode exists
+        return is_tt_hit || is_cache_hit || (node && (node->IsTerminal() || node->GetLowNode()));
     }
     bool ShouldAddToInput() const {
       return nn_queried && !is_tt_hit && !is_twin_hit;
     }
     int GetRule50Ply() const { return history.Last().GetRule50Ply(); }
 
-    // The path to the node to extend.
     BackupPath path;
-    // The node to extend.
     Node* node;
     uint32_t multivisit = 0;
-    // If greater than multivisit, and other parameters don't imply a lower
-    // limit, multivist could be increased to this value without additional
-    // change in outcome of next selection.
     uint32_t maxvisit = 0;
     float error = 0.0f;
     bool nn_queried = false;
     bool is_tt_hit = false;
     bool is_twin_hit = false;
-
     bool is_cache_hit = false;
     bool is_collision = false;
-
-    // values for improving r50 estimates, filled in as we go
     float twin_error;
-
-    // Details that are filled in as we go.
     uint64_t hash;
     uint64_t ch_hash;
-
     LowNode* tt_low_node;
     LowNode* twin_low_node;
-
-    NNCacheLock lock; // Needs NNCacheLock definition
-    PositionHistory history; // Needs PositionHistory definition
+    NNCacheLock lock; // Now defined via cache.h include
+    PositionHistory history;
     bool ooo_completed = false;
-
-    // Repetition draws.
     int repetitions = 0;
 
     static NodeToProcess Collision(const BackupPath& path, int collision_count,
@@ -418,14 +234,14 @@ struct SearchWorker::NodeToProcess {
       return NodeToProcess(path, history);
     }
 
-    void SetR50Bounds(NodeTree* /*dag*/) {} // Parameter name removed
+    void SetR50Bounds(NodeTree* /*dag*/) {} // Param name removed
 
-    // Method to allow NodeToProcess to conform as a 'Computation'. Only safe
-    // to call if is_cache_hit is true in the multigather path.
-    std::shared_ptr<NNEval> GetNNEval(int) const { return lock ? lock->eval : nullptr; } // Add null check for lock
+    std::shared_ptr<NNEval> GetNNEval(int) const {
+        // Use member 'lock' directly. NNEval is defined via node.h include.
+        return lock ? lock->eval : nullptr;
+    }
 
-
-    std::string DebugString() const; // Definition moved to .cc
+    std::string DebugString() const;
 
    private:
     NodeToProcess(const BackupPath& path, uint32_t multivisit,
@@ -436,7 +252,7 @@ struct SearchWorker::NodeToProcess {
           maxvisit(max_count),
           is_collision(true),
           repetitions(0),
-          tt_low_node(nullptr), // Initialize pointers
+          tt_low_node(nullptr),
           twin_low_node(nullptr)
           {}
     NodeToProcess(const BackupPath& path, const PositionHistory& in_history)
@@ -447,14 +263,14 @@ struct SearchWorker::NodeToProcess {
           is_collision(false),
           history(in_history),
           repetitions(std::get<1>(path.back())),
-          tt_low_node(nullptr), // Initialize pointers
+          tt_low_node(nullptr),
           twin_low_node(nullptr)
           {}
   };
 
 
-struct SearchWorker::TaskWorkspace {
-    std::array<Node::Iterator, 256> cur_iters; // Needs Node::Iterator definition
+  struct TaskWorkspace {
+    std::array<Node::Iterator, 256> cur_iters;
     std::vector<std::unique_ptr<std::array<int, 256>>> vtp_buffer;
     std::vector<std::unique_ptr<std::array<int, 256>>> visits_to_perform;
     std::vector<int> vtp_last_filled;
@@ -469,21 +285,16 @@ struct SearchWorker::TaskWorkspace {
     }
   };
 
-struct SearchWorker::PickTask {
+  struct PickTask {
     enum PickTaskType { kGathering, kProcessing };
     PickTaskType task_type;
-
-    // For task type gathering.
     BackupPath start_path;
     Node* start;
     int collision_limit;
-    PositionHistory history; // Needs PositionHistory definition
-    std::vector<NodeToProcess> results; // Needs NodeToProcess definition
-
-    // Task type post gather processing.
+    PositionHistory history;
+    std::vector<NodeToProcess> results;
     int start_idx;
     int end_idx;
-
     bool complete = false;
 
     PickTask(const BackupPath& start_path, const PositionHistory& in_history,
@@ -493,14 +304,93 @@ struct SearchWorker::PickTask {
           start(std::get<0>(start_path.back())),
           collision_limit(collision_limit),
           history(in_history),
-          start_idx(0), // Initialize other members
-          end_idx(0)
+          start_idx(0), end_idx(0) // Initialize other members
            {}
     PickTask(int start_idx, int end_idx)
         : task_type(kProcessing), start_idx(start_idx), end_idx(end_idx),
           start(nullptr), collision_limit(0) // Initialize other members
           {}
   };
+
+
+  bool MaybeAdjustForTerminalOrTransposition(
+      Node* n, const LowNode* nl, float& v, float& d, float& m, float& vs,
+      uint32_t& n_to_fix, float& weight_to_fix, float& v_delta, float& d_delta,
+      float& m_delta, float& vs_delta, bool& update_parent_bounds) const;
+  void DoBackupUpdateSingleNode(const NodeToProcess& node_to_process);
+  bool MaybeSetBounds(Node* p, float m, uint32_t* n_to_fix,
+                      float* weight_to_fix, float* v_delta, float* d_delta,
+                      float* m_delta, float* vs_delta) const;
+  void PickNodesToExtend(int collision_limit);
+  void PickNodesToExtendTask(const BackupPath& path, int collision_limit,
+                             PositionHistory& history,
+                             std::vector<NodeToProcess>* receiver,
+                             TaskWorkspace* workspace);
+
+  std::pair<int, int> GetRepetitions(int depth, const Position& position);
+  bool ShouldStopPickingHere(Node* node, bool is_root_node, int repetitions);
+  void ProcessPickedTask(int batch_start, int batch_end);
+  void ExtendNode(NodeToProcess& picked_node);
+  template <typename Computation>
+  void FetchSingleNodeResult(NodeToProcess* node_to_process,
+                             const Computation& computation,
+                             int idx_in_computation);
+  void RunTasks(int tid);
+  void ResetTasks();
+  int WaitForTasks();
+
+  Search* const search_;
+  std::vector<NodeToProcess> minibatch_;
+  std::unique_ptr<CachingComputation> computation_;
+  PositionHistory history_;
+  uint32_t number_out_of_order_ = 0;
+  const SearchParams& params_;
+  std::unique_ptr<Node> precached_node_;
+  const bool moves_left_support_;
+  IterationStats iteration_stats_;
+  StoppersHints latest_time_manager_hints_;
+
+  Mutex picking_tasks_mutex_;
+  std::vector<PickTask> picking_tasks_;
+  std::atomic<int> task_count_ = -1;
+  std::atomic<int> task_taking_started_ = 0;
+  std::atomic<int> tasks_taken_ = 0;
+  std::atomic<int> completed_tasks_ = 0;
+  std::condition_variable task_added_;
+  std::vector<std::thread> task_threads_;
+  std::vector<TaskWorkspace> task_workspaces_;
+  TaskWorkspace main_workspace_;
+  bool exiting_ = false;
+};
+
+// Define NodeToProcess::DebugString here or move to .cc
+inline std::string SearchWorker::NodeToProcess::DebugString() const {
+    std::ostringstream oss;
+    oss << "<NodeToProcess> This:" << this << " Depth:" << path.size()
+        << " Node:" << node << " Multivisit:" << multivisit
+        << " Maxvisit:" << maxvisit << " NNQueried:" << nn_queried
+        << " TTHit:" << is_tt_hit << " CacheHit:" << is_cache_hit
+        << " Collision:" << is_collision << " OOO:" << ooo_completed
+        << " Repetitions:" << repetitions << " Path:";
+    for (auto it = path.cbegin(); it != path.cend(); ++it) {
+      if (it != path.cbegin()) oss << "->";
+      auto n = std::get<0>(*it);
+      // Assuming GetLowNode exists after including node.h
+      auto nl = n ? n->GetLowNode() : nullptr;
+      oss << n << ":" << (n ? n->GetNInFlight() : 0); // Null check n
+      if (nl) {
+        oss << "(" << nl << ")";
+      }
+    }
+    if (node) { // Null check node
+        oss << " --- " << node->DebugString();
+        if (node->GetLowNode()) // Assuming GetLowNode exists
+          oss << " --- " << node->GetLowNode()->DebugString();
+    } else {
+        oss << " --- (null node)";
+    }
+    return oss.str();
+}
 
 
 }  // namespace lczero
