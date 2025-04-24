@@ -27,202 +27,156 @@
 
 #include "chess/position.h"
 
-#include <cassert>
-#include <cctype>
-#include <cstdlib>
 #include <cstring>
+#include <iostream>
 
-namespace {
-// GetPieceAt returns the piece found at row, col on board or the null-char '\0'
-// in case no piece there.
-char GetPieceAt(const lczero::ChessBoard& board, int row, int col) {
-  char c = '\0';
-  if (board.ours().get(row, col) || board.theirs().get(row, col)) {
-    if (board.pawns().get(row, col)) {
-      c = 'P';
-    } else if (board.kings().get(row, col)) {
-      c = 'K';
-    } else if (board.bishops().get(row, col)) {
-      c = 'B';
-    } else if (board.queens().get(row, col)) {
-      c = 'Q';
-    } else if (board.rooks().get(row, col)) {
-      c = 'R';
-    } else {
-      c = 'N';
-    }
-    if (board.theirs().get(row, col)) {
-      c = std::tolower(c);  // Capitals are for white.
-    }
-  }
-  return c;
-}
+#include "utils/hashcat.h"
 
-}  // namespace
 namespace lczero {
-
-Position::Position(const Position& parent, Move m)
-    : rule50_ply_(parent.rule50_ply_ + 1), ply_count_(parent.ply_count_ + 1) {
-  them_board_ = parent.us_board_;
-  const bool is_zeroing = them_board_.ApplyMove(m);
-  us_board_ = them_board_;
-  us_board_.Mirror();
-  if (is_zeroing) rule50_ply_ = 0;
-}
+////////////////////////////////////////////////////////////////////////////////
+// Position
+////////////////////////////////////////////////////////////////////////////////
 
 Position::Position(const ChessBoard& board, int rule50_ply, int game_ply)
-    : rule50_ply_(rule50_ply), repetitions_(0), ply_count_(game_ply) {
-  us_board_ = board;
-  them_board_ = board;
-  them_board_.Mirror();
-}
-
-uint64_t Position::Hash() const { return us_board_.Hash(); }
-uint64_t Position::CHHash() const { return us_board_.CHHash(); }
-
-std::string Position::DebugString() const { return us_board_.DebugString(); }
-
-GameResult operator-(const GameResult& res) {
-  return res == GameResult::BLACK_WON   ? GameResult::WHITE_WON
-         : res == GameResult::WHITE_WON ? GameResult::BLACK_WON
-                                        : res;
-}
-
-GameResult PositionHistory::ComputeGameResult() const {
-  const auto& board = Last().GetBoard();
-  auto legal_moves = board.GenerateLegalMoves();
-  if (legal_moves.empty()) {
-    if (board.IsUnderCheck()) {
-      // Checkmate.
-      return IsBlackToMove() ? GameResult::WHITE_WON : GameResult::BLACK_WON;
-    }
-    // Stalemate.
-    return GameResult::DRAW;
-  }
-
-  if (!board.HasMatingMaterial()) return GameResult::DRAW;
-  if (Last().GetRule50Ply() >= 100) return GameResult::DRAW;
-  if (Last().GetRepetitions() >= 2) return GameResult::DRAW;
-
-  return GameResult::UNDECIDED;
-}
-
-void PositionHistory::Reset(const ChessBoard& board, int rule50_ply,
-                            int game_ply) {
-  positions_.clear();
-  positions_.emplace_back(board, rule50_ply, game_ply);
-
-  last_move_ = Move();
-}
-
-void PositionHistory::Append(Move m) {
-  // TODO(mooskagh) That should be emplace_back(Last(), m), but MSVS STL
-  //                has a bug in implementation of emplace_back, when
-  //                reallocation happens. (it also reallocates Last())
-  positions_.push_back(Position(Last(), m));
-  int cycle_length;
-  int repetitions = ComputeLastMoveRepetitions(&cycle_length);
-  positions_.back().SetRepetitions(repetitions, cycle_length);
-
-  last_move_ = m;
-}
-
-int PositionHistory::ComputeLastMoveRepetitions(int* cycle_length) const {
-  *cycle_length = 0;
-  const auto& last = positions_.back();
-  // TODO(crem) implement hash/cache based solution.
-  if (last.GetRule50Ply() < 4) return 0;
-
-  for (int idx = positions_.size() - 5; idx >= 0; idx -= 2) {
-    const auto& pos = positions_[idx];
-    if (pos.GetBoard() == last.GetBoard()) {
-      *cycle_length = positions_.size() - 1 - idx;
-      return 1 + pos.GetRepetitions();
-    }
-    if (pos.GetRule50Ply() < 2) return 0;
-  }
-  return 0;
-}
-
-bool PositionHistory::DidRepeatSinceLastZeroingMove() const {
-  for (auto iter = positions_.rbegin(), end = positions_.rend(); iter != end;
-       ++iter) {
-    if (iter->GetRepetitions() > 0) return true;
-    if (iter->GetRule50Ply() == 0) return false;
-  }
-  return false;
-}
-
-uint64_t PositionHistory::HashLast(int positions, int r50_ply) const {
-  uint64_t hash = positions;
-  for (auto iter = positions_.rbegin(), end = positions_.rend(); iter != end;
-       ++iter) {
-    if (!positions--) break;
-    hash = HashCat(hash, iter->Hash());
-  }
-  if (r50_ply < 0) {
-    r50_ply = Last().GetRule50Ply();
-  }
-  return HashCat(hash, r50_ply);
-}
-
-
-uint64_t PositionHistory::CHHash() const { 
-  Position last = Last();
-  const Move last_move = LastMove();
-  uint64_t position_hash = last.CHHash();
- // if (last_move) {
-	//	position_hash = HashCat(position_hash, last_move.Hash());
- //   char moved_piece = GetPieceAt(last.GetBoard(), last_move.to().row(),
- //                                             last_move.to().col());
- //   position_hash = HashCat(position_hash, moved_piece);
-
- //   // we add whether it was a capture and what it captured if so
- //   // if a piece was not capture then GetPieceAt returns "\0"
- //   // if a piece was not captured then GetPieceAt returns "\0"
- //   if (positions_.size() > 1) {
- //     char captured_piece =
- //         GetPieceAt(positions_[positions_.size() - 2].GetBoard(),
- //                    last_move.to().row(), last_move.to().col());
- //     position_hash = HashCat(position_hash, captured_piece);
-	//	}
-	//}
-
-  return position_hash;
-}
-
-
-std::string GetFen(const Position& pos) {
-  std::string result;
-  const ChessBoard& board = pos.GetWhiteBoard();
-  for (int row = 7; row >= 0; --row) {
-    int emptycounter = 0;
-    for (int col = 0; col < 8; ++col) {
-      char piece = GetPieceAt(board, row, col);
-      if (emptycounter > 0 && piece) {
-        result += std::to_string(emptycounter);
-        emptycounter = 0;
-      }
-      if (piece) {
-        result += piece;
-      } else {
-        emptycounter++;
+    : board_(board), rule50_ply_(rule50_ply), game_ply_(game_ply) {
+  // Generate hash.
+  hash_ = board_.Hash();
+  ch_hash_ = board_.CHHash();
+  repetitions_ = 0;
+  // This is the most efficient way to detect first repetition, but slow to
+  // detect second or third. Luckily they are very rare.
+  if (rule50_ply > 0) {
+    PositionHistory history(*this);
+    for (int i = 0; i < rule50_ply; ++i) {
+      history.Pop();
+      if (history.Last().Hash() == hash_) {
+        repetitions_ = 1;
+        plies_since_prev_repetition_ = i + 1;
+        break;
       }
     }
-    if (emptycounter > 0) result += std::to_string(emptycounter);
-    if (row > 0) result += "/";
   }
-  std::string enpassant = "-";
-  if (!board.en_passant().empty()) {
-    auto sq = *board.en_passant().begin();
-    enpassant = BoardSquare(pos.IsBlackToMove() ? 2 : 5, sq.col()).as_string();
-  }
-  result += pos.IsBlackToMove() ? " b" : " w";
-  result += " " + board.castlings().as_string();
-  result += " " + enpassant;
-  result += " " + std::to_string(pos.GetRule50Ply());
-  result += " " + std::to_string(
-                      (pos.GetGamePly() + (pos.IsBlackToMove() ? 1 : 2)) / 2);
-  return result;
 }
+
+Position::Position(const Position& parent, Move move) {
+  const auto& pboard = parent.board_;
+  bool was_capture = pboard.IsCapture(move);
+  bool was_pawn = pboard.IsPawnMove(move);
+  board_ = pboard.ApplyMove(move);
+  hash_ = board_.Hash();
+  ch_hash_ = board_.CHHash();
+  // Update draw counters.
+  game_ply_ = parent.game_ply_ + 1;
+  rule50_ply_ = (was_capture || was_pawn) ? 0 : parent.rule50_ply_ + 1;
+  // Update repetition counter.
+  repetitions_ = 0;
+  if (rule50_ply_ > 0) {
+    if (parent.Hash() == hash_) {
+      repetitions_ = parent.repetitions_ + 1;
+      plies_since_prev_repetition_ = 1;
+    } else if (parent.repetitions_ > 0 && parent.rule50_ply_ > 0) {
+      // If parent wasn't first repetition, we could be second or third.
+      PositionHistory history(*this);
+      for (int i = 0; i < rule50_ply_; ++i) {
+        history.Pop();
+        if (history.Last().Hash() == hash_) {
+          repetitions_ = history.Last().repetitions_ + 1;
+          plies_since_prev_repetition_ = i + 1;
+          break;
+        }
+      }
+    }
+  }
+}
+
+// Returns number of previous repetitions of the current position.
+// @return 0 - never repeated, 1 - repeated once, 2+ - repeated twice or more.
+int Position::GetRepetitions() const { return repetitions_; }
+
+int Position::GetPliesSincePrevRepetition() const {
+  return plies_since_prev_repetition_;
+}
+
+bool Position::IsDraw() const {
+  return (!board_.HasMatingMaterial() || (rule50_ply_ >= 100) ||
+          (repetitions_ >= 2));
+}
+
+std::vector<Position::InputPlanes> EncodePositionHistory(
+    pblczero::NetworkFormat format, const PositionHistory& history,
+    const Position& position, int max_planes) {
+  auto input_planes = EncodePosition(format, position.GetBoard(), max_planes);
+  if (max_planes == Position::InputPlanes::kTotalMoveCount) return input_planes;
+  const auto& board = position.GetBoard();
+  auto hist_iter = history.rbegin();
+  // Iterate over past positions and fill input history.
+  for (int p = 0; p < 7; ++p) {
+    if (hist_iter != history.rend()) ++hist_iter;
+    const auto& prev_board =
+        (hist_iter != history.rend()) ? hist_iter->GetBoard() : board;
+    const auto planes =
+        EncodePosition(format, prev_board, Position::InputPlanes::kTotal);
+    // Copy 2 planes (our pieces, their pieces).
+    input_planes[Position::InputPlanes::kTotal + p * 2 + 0] = planes[0];
+    input_planes[Position::InputPlanes::kTotal + p * 2 + 1] = planes[1];
+  }
+  return input_planes;
+}
+
+std::vector<Position::InputPlanes> EncodePositionForNN(
+    const Position& position, const SearchParams& params) {
+  PositionHistory history(position);
+  int planes = Position::InputPlanes::kTotal;
+  if (params.GetCacheHistoryLength() == 0) {
+    FillEmptyHistory fill_mode = params.GetHistoryFill();
+    if (fill_mode != FillEmptyHistory::NO) {
+      if (fill_mode == FillEmptyHistory::ALWAYS ||
+          position.GetFenString() != kStartingFen) {
+        history.FillFrom(position);
+        planes = Position::InputPlanes::kTotalHistory;
+      }
+    }
+  }
+
+  return EncodePositionHistory(pblczero::NetworkFormat::INPUT_CLASSICAL_112,
+                               history, position, planes);
+}
+
+Position::InputPlanes& Position::InputPlanes::operator=(
+    const Position::InputPlanes& p) {
+  std::memcpy(data.data(), p.data.data(), data.size());
+  return *this;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// PositionHistory
+////////////////////////////////////////////////////////////////////////////////
+uint64_t PositionHistory::HashLast(int count, int r50_ply) const {
+  auto hist_iter = rbegin();
+  uint64_t hash = hist_iter->Hash();
+  if (r50_ply >= 0) hash ^= utils::HashCat(2, static_cast<uint64_t>(r50_ply));
+  ++hist_iter;
+  --count;
+  for (int i = 0; i < count && hist_iter != rend(); ++i, ++hist_iter) {
+    hash = utils::HashCat(hash, hist_iter->Hash());
+  }
+  return hash;
+}
+
+
+uint64_t PositionHistory::CHHash() const {
+  auto hist_iter = rbegin();
+  uint64_t hash = hist_iter->CHHash();
+
+  ++hist_iter;
+  if (hist_iter == rend()) return 0;
+  hash = utils::HashCat(hash, hist_iter->CHHash());
+
+  // const Move last_move = LastMove(); // WARNING: Unused variable
+  return hash;
+
+}
+
+
+
 }  // namespace lczero
