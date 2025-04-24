@@ -34,16 +34,15 @@
 #include <string>
 #include <vector>
 
-#include "chess/bitboard.h" // Includes Move, MoveList definitions
-#include "neural/encoder.h" // Often defines necessary enums/types
+// Include the header where Move and MoveList are defined
+#include "chess/bitboard.h" // <<< CORRECTED PATH (relative to src/mcts/)
+#include "neural/encoder.h"
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
-// #include "neural/shared_params.h" // REMOVED - Does not exist
-
 namespace lczero {
 
-// Define HistoryFill locally if not brought in by other headers
-enum class HistoryFill { NO, FEN_ONLY, ALWAYS };
+// Define HistoryFill locally if not brought in by shared_params.h
+// enum class HistoryFill { NO, FEN_ONLY, ALWAYS }; // Defined in shared_params.h in uwuplant
 
 enum class ContemptMode { PLAY, WHITE, BLACK, NONE };
 
@@ -62,9 +61,14 @@ class SearchParams {
   // Score type.
   enum class ScoreType { Q, WDL_W, WDL_L, WDL_MU };
 
-  // Contempt mode enum was duplicated, removed second one
+  // HistoryFill defined in shared_params.h
 
-  // --- Parameter Getters (Keep all getters from previous correct version) ---
+  // Contempt mode.
+  enum class ContemptMode { OFF, WHITE_SIDE_ANALYSIS, BLACK_SIDE_ANALYSIS, PLAY }; // Defined again? Pick one. Keep this one.
+
+  // --- Parameter Getters ---
+  // (Keep all getters from the previous full version)
+  // ... (GetMiniBatchSize, GetCpuct, GetCpuctExponent, ..., GetEasyEvalValueThreshold) ...
   int GetMiniBatchSize() const { return kMiniBatchSize; }
   int GetMaxPrefetch() const { return kMaxPrefetch; }
   bool GetRootHasOwnCpuctParams() const { return kRootHasOwnCpuctParams; }
@@ -85,7 +89,7 @@ class SearchParams {
   bool GetQvalueTempIsEnabled() const { return kQvalueTempIsEnabled; }
   float GetQvalueZeroTemp() const { return kQvalueZeroTemp; }
   float GetQvalueOneTemp() const { return kQvalueOneTemp; }
-  float GetPolicyTemperature() const { return kPolicyTemperature; } // Use member kPolicyTemperature
+  float GetPolicyTemperature() const { return kPolicyTemperature; }
   bool GetUsePolicyBoosting() const { return kUsePolicyBoosting; }
   float GetTopPolicyBoost() const { return kTopPolicyBoost; }
   int GetTopPolicyNumBoost() const { return kTopPolicyNumBoost; }
@@ -111,7 +115,7 @@ class SearchParams {
   float GetDesperationMultiplier() const { return kDesperationMultiplier; }
   float GetDesperationPriorWeight() const { return kDesperationPriorWeight; }
   ScoreType GetScoreType() const { return kScoreType; }
-  HistoryFill GetHistoryFill() const { return kHistoryFill; } // Use member kHistoryFill
+  HistoryFill GetHistoryFill() const { return kHistoryFill; }
   float GetMovesLeftMaxEffect() const { return kMovesLeftMaxEffect; }
   float GetMovesLeftThreshold() const { return kMovesLeftThreshold; }
   float GetMovesLeftLinearFactor() const { return kMovesLeftLinearFactor; }
@@ -186,7 +190,7 @@ class SearchParams {
   static const OptionId kQvalueTempIsEnabledId;
   static const OptionId kQvalueZeroTempId;
   static const OptionId kQvalueOneTempId;
-  static const OptionId kPolicyTemperatureId; // Declare shared ID here
+  static const OptionId kPolicyTemperatureId;
   static const OptionId kUsePolicyBoostingId;
   static const OptionId kTopPolicyBoostId;
   static const OptionId kTopPolicyNumBoostId;
@@ -216,7 +220,7 @@ class SearchParams {
   static const OptionId kDesperationMultiplierId;
   static const OptionId kDesperationPriorWeightId;
   static const OptionId kScoreTypeId;
-  static const OptionId kHistoryFillId; // Declare shared ID here
+  static const OptionId kHistoryFillId;
   static const OptionId kMovesLeftMaxEffectId;
   static const OptionId kMovesLeftThresholdId;
   static const OptionId kMovesLeftLinearFactorId;
@@ -272,7 +276,7 @@ class SearchParams {
 
 
   // Setup the global options related to search.
-  static void PopulateOptions(OptionsParser* options);
+  static void PopulateOptions(OptionsParser* options); // Keep static method declaration
 
  private:
   // WDL rescaling parameters.
@@ -314,7 +318,7 @@ class SearchParams {
   const bool kQvalueTempIsEnabled;
   const float kQvalueZeroTemp;
   const float kQvalueOneTemp;
-  const float kPolicyTemperature; // Add member for shared param
+  const float kPolicyTemperature;
   const bool kUsePolicyBoosting;
   const float kTopPolicyBoost;
   const int kTopPolicyNumBoost;
@@ -344,10 +348,10 @@ class SearchParams {
   const float kDesperationMultiplier;
   const float kDesperationPriorWeight;
   const ScoreType kScoreType;
-  const HistoryFill kHistoryFill; // Add member for shared param
+  const HistoryFill kHistoryFill;
   const float kMovesLeftMaxEffect;
   const float kMovesLeftThreshold;
-  const float kMovesLeftLinearFactor; // Missing in original uwuplant?
+  const float kMovesLeftLinearFactor;
   const float kMovesLeftScaledFactor;
   const float kMovesLeftQuadraticFactor;
   const bool kDisplayCacheUsage;
