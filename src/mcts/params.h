@@ -1,3 +1,30 @@
+/*
+  This file is part of Leela Chess Zero.
+  Copyright (C) 2018-2019 The LCZero Authors
+
+  Leela Chess is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Leela Chess is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with Leela Chess.  If not, see <http://www.gnu.org/licenses/>.
+
+  Additional permission under GNU GPL version 3 section 7
+
+  If you modify this Program, or any covered work, by linking or
+  combining it with NVIDIA Corporation's libraries from the NVIDIA CUDA
+  Toolkit and the NVIDIA CUDA Deep Neural Network library (or a
+  modified version of those libraries), containing parts covered by the
+  terms of the respective license agreement, the licensors of this
+  Program grant you additional permission to convey the resulting work.
+*/
+
 #pragma once
 
 #include <array>
@@ -7,13 +34,18 @@
 #include <string>
 #include <vector>
 
-#include "move.h" // Already present in uwuplant/lc0
+#include "chess/move.h" // <<< CORRECTED PATH (relative to src/)
 #include "neural/encoder.h"
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
-#include "neural/shared_params.h" // Already present in uwuplant/lc0
+#include "neural/shared_params.h"
 
 namespace lczero {
+
+// Forward declare enum defined in shared_params.h to avoid full include here if possible
+// enum class HistoryFill; // Already in shared_params.h, no need to forward declare if included
+
+enum class ContemptMode { PLAY, WHITE, BLACK, NONE };
 
 class SearchParams {
  public:
@@ -30,8 +62,7 @@ class SearchParams {
   // Score type.
   enum class ScoreType { Q, WDL_W, WDL_L, WDL_MU };
 
-  // History fill. (Already defined in shared_params.h included above)
-  // enum class HistoryFill { NO, FEN_ONLY, ALWAYS };
+  // HistoryFill defined in shared_params.h
 
   // Contempt mode.
   enum class ContemptMode { OFF, WHITE_SIDE_ANALYSIS, BLACK_SIDE_ANALYSIS, PLAY };
@@ -122,9 +153,9 @@ class SearchParams {
   float GetContempt() const { return kContempt; }
   float GetWDLRescaleRatio() const { return kWDLRescaleParams.ratio; }
   float GetWDLRescaleDiff() const { return kWDLRescaleParams.diff; }
-  float GetWDLMaxS() const { return kWDLMaxS; } // Added getter
+  float GetWDLMaxS() const { return kWDLMaxS; }
   float GetWDLEvalObjectivity() const { return kWDLEvalObjectivity; }
-  uint32_t GetMaxOutOfOrderEvals() const { return kMaxOutOfOrderEvals; } // Correct type
+  uint32_t GetMaxOutOfOrderEvals() const { return kMaxOutOfOrderEvals; }
   float GetNpsLimit() const { return kNpsLimit; }
   int GetSolidTreeThreshold() const { return kSolidTreeThreshold; }
   int GetTaskWorkersPerSearchWorker() const {
@@ -164,7 +195,7 @@ class SearchParams {
   float GetRootBeamScoreMargin() const { return kRootBeamScoreMargin; }
   // --- END Root Beam Search Getters ---
 
-  // --- Variance Scaling getters (Already present in uwuplant/lc0) ---
+  // --- Variance Scaling getters ---
   float GetCpuctUtilityStdevPrior() const {
     return kCpuctUtilityStdevPrior;
   }
@@ -176,7 +207,7 @@ class SearchParams {
   }
   bool GetUseVarianceScaling() const { return kUseVarianceScaling; }
 
-  // --- Uncertainty getters (Already present in uwuplant/lc0) ---
+  // --- Uncertainty getters ---
   float GetCpuctUncertaintyMinFactor() const {
     return kCpuctUncertaintyMinFactor;
   }
@@ -192,7 +223,7 @@ class SearchParams {
   bool GetUseCpuctUncertainty() const { return kUseCpuctUncertainty; }
   bool GetJustFpuUncertainty() const { return kJustFpuUncertainty; }
 
-  // --- EasyEval getters (Already present in uwuplant/lc0) ---
+  // --- EasyEval getters ---
   float GetEasyEvalWeightDecay() const { return kEasyEvalWeightDecay; }
   float GetEasyEvalValueThreshold() const { return kEasyEvalValueThreshold; }
 
@@ -222,7 +253,7 @@ class SearchParams {
   static const OptionId kQvalueTempIsEnabledId;
   static const OptionId kQvalueZeroTempId;
   static const OptionId kQvalueOneTempId;
-  static const OptionId kPolicyTemperatureId; // Shared with SharedBackendParams
+  static const OptionId kPolicyTemperatureId;
   static const OptionId kUsePolicyBoostingId;
   static const OptionId kTopPolicyBoostId;
   static const OptionId kTopPolicyNumBoostId;
@@ -252,7 +283,7 @@ class SearchParams {
   static const OptionId kDesperationMultiplierId;
   static const OptionId kDesperationPriorWeightId;
   static const OptionId kScoreTypeId;
-  static const OptionId kHistoryFillId; // Shared with SharedBackendParams
+  static const OptionId kHistoryFillId;
   static const OptionId kMovesLeftMaxEffectId;
   static const OptionId kMovesLeftThresholdId;
   static const OptionId kMovesLeftLinearFactorId;
@@ -270,9 +301,9 @@ class SearchParams {
   static const OptionId kWDLBookExitBiasId;
   static const OptionId kWDLRescaleRatioId;
   static const OptionId kWDLRescaleDiffId;
-  static const OptionId kWDLMaxSId; // Added ID
+  static const OptionId kWDLMaxSId;
   static const OptionId kWDLEvalObjectivityId;
-  static const OptionId kMaxOutOfOrderEvalsFactorId; // Renamed ID
+  static const OptionId kMaxOutOfOrderEvalsFactorId;
   static const OptionId kNpsLimitId;
   static const OptionId kSolidTreeThresholdId;
   static const OptionId kTaskWorkersPerSearchWorkerId;
@@ -296,13 +327,13 @@ class SearchParams {
   static const OptionId kRootBeamScoreMarginId;
   // --- END Root Beam Search Parameter IDs ADDED ---
 
-  // --- Variance Scaling IDs (Already present in uwuplant/lc0) ---
+  // --- Variance Scaling IDs ---
   static const OptionId kCpuctUtilityStdevPriorId;
   static const OptionId kCpuctUtilityStdevScaleId;
   static const OptionId kCpuctUtilityStdevPriorWeightId;
   static const OptionId kUseVarianceScalingId;
 
-  // --- Uncertainty IDs (Already present in uwuplant/lc0) ---
+  // --- Uncertainty IDs ---
   static const OptionId kCpuctUncertaintyMinFactorId;
   static const OptionId kCpuctUncertaintyMaxFactorId;
   static const OptionId kCpuctUncertaintyMinUncertaintyId;
@@ -310,7 +341,7 @@ class SearchParams {
   static const OptionId kUseCpuctUncertaintyId;
   static const OptionId kJustFpuUncertaintyId;
 
-  // --- EasyEval IDs (Already present in uwuplant/lc0) ---
+  // --- EasyEval IDs ---
   static const OptionId kEasyEvalWeightDecayId;
   static const OptionId kEasyEvalValueThresholdId;
 
@@ -358,7 +389,7 @@ class SearchParams {
   const bool kQvalueTempIsEnabled;
   const float kQvalueZeroTemp;
   const float kQvalueOneTemp;
-  const float kPolicyTemperature; // From SharedParams
+  const float kPolicyTemperature;
   const bool kUsePolicyBoosting;
   const float kTopPolicyBoost;
   const int kTopPolicyNumBoost;
@@ -388,7 +419,7 @@ class SearchParams {
   const float kDesperationMultiplier;
   const float kDesperationPriorWeight;
   const ScoreType kScoreType;
-  const HistoryFill kHistoryFill; // From SharedParams
+  const HistoryFill kHistoryFill;
   const float kMovesLeftMaxEffect;
   const float kMovesLeftThreshold;
   const float kMovesLeftLinearFactor;
@@ -400,10 +431,10 @@ class SearchParams {
   const ContemptMode kContemptMode;
   const float kContempt;
   const WDLRescaleParams kWDLRescaleParams;
-  const float kWDLMaxS; // Added member
+  const float kWDLMaxS;
   const float kWDLEvalObjectivity;
-  const float kMaxOutOfOrderEvalsFactor; // Changed type and name
-  uint32_t kMaxOutOfOrderEvals; // Made non-const, calculated in constructor
+  const float kMaxOutOfOrderEvalsFactor;
+  uint32_t kMaxOutOfOrderEvals;
   const float kNpsLimit;
   const int kSolidTreeThreshold;
   const int kTaskWorkersPerSearchWorker;
@@ -427,13 +458,13 @@ class SearchParams {
   const float kRootBeamScoreMargin;
   // --- END Root Beam Search ADDED ---
 
-  // --- Variance Scaling members (Already present in uwuplant/lc0) ---
+  // --- Variance Scaling members ---
   const float kCpuctUtilityStdevPrior;
   const float kCpuctUtilityStdevScale;
   const float kCpuctUtilityStdevPriorWeight;
   const bool kUseVarianceScaling;
 
-  // --- Uncertainty members (Already present in uwuplant/lc0) ---
+  // --- Uncertainty members ---
   const float kCpuctUncertaintyMinFactor;
   const float kCpuctUncertaintyMaxFactor;
   const float kCpuctUncertaintyMinUncertainty;
@@ -441,7 +472,7 @@ class SearchParams {
   const bool kUseCpuctUncertainty;
   const bool kJustFpuUncertainty;
 
-  // --- EasyEval members (Already present in uwuplant/lc0) ---
+  // --- EasyEval members ---
   const float kEasyEvalWeightDecay;
   const float kEasyEvalValueThreshold;
 };
