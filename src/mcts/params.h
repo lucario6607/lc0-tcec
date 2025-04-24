@@ -34,7 +34,8 @@
 #include <string>
 #include <vector>
 
-#include "chess/move.h" // <<< CORRECTED PATH (relative to src/)
+// Try include relative to top-level src directory
+#include "../chess/move.h" // <<< CORRECTED PATH (relative to top src/)
 #include "neural/encoder.h"
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
@@ -42,8 +43,8 @@
 
 namespace lczero {
 
-// Forward declare enum defined in shared_params.h to avoid full include here if possible
-// enum class HistoryFill; // Already in shared_params.h, no need to forward declare if included
+// Forward declare enum defined in shared_params.h if needed, but it's included now
+enum class HistoryFill;
 
 enum class ContemptMode { PLAY, WHITE, BLACK, NONE };
 
@@ -64,35 +65,21 @@ class SearchParams {
 
   // HistoryFill defined in shared_params.h
 
-  // Contempt mode.
-  enum class ContemptMode { OFF, WHITE_SIDE_ANALYSIS, BLACK_SIDE_ANALYSIS, PLAY };
+  // Contempt mode enum was duplicated, removed second one
+  // enum class ContemptMode { OFF, WHITE_SIDE_ANALYSIS, BLACK_SIDE_ANALYSIS, PLAY };
 
-  // Parameter getters.
+  // --- Parameter Getters (Keep all getters from previous correct version) ---
   int GetMiniBatchSize() const { return kMiniBatchSize; }
   int GetMaxPrefetch() const { return kMaxPrefetch; }
   bool GetRootHasOwnCpuctParams() const { return kRootHasOwnCpuctParams; }
   float GetCpuct(bool at_root) const { return at_root ? kCpuctAtRoot : kCpuct; }
-  float GetCpuctExponent(bool at_root) const {
-    return at_root ? kCpuctExponentAtRoot : kCpuctExponent;
-  }
-  float GetCpuctBase(bool at_root) const {
-    return at_root ? kCpuctBaseAtRoot : kCpuctBase;
-  }
-  float GetCpuctFactor(bool at_root) const {
-    return at_root ? kCpuctFactorAtRoot : kCpuctFactor;
-  }
-  bool GetUseUncertaintyWeighting() const {
-    return kUseUncertaintyWeighting;
-  }
-  float GetUncertaintyWeightingCoefficient() const {
-    return kUncertaintyWeightingCoefficient;
-  }
-  float GetUncertaintyWeightingExponent() const {
-    return kUncertaintyWeightingExponent;
-  }
-  float GetUncertaintyWeightingCap() const {
-    return kUncertaintyWeightingCap;
-  }
+  float GetCpuctExponent(bool at_root) const { return at_root ? kCpuctExponentAtRoot : kCpuctExponent; }
+  float GetCpuctBase(bool at_root) const { return at_root ? kCpuctBaseAtRoot : kCpuctBase; }
+  float GetCpuctFactor(bool at_root) const { return at_root ? kCpuctFactorAtRoot : kCpuctFactor; }
+  bool GetUseUncertaintyWeighting() const { return kUseUncertaintyWeighting; }
+  float GetUncertaintyWeightingCoefficient() const { return kUncertaintyWeightingCoefficient; }
+  float GetUncertaintyWeightingExponent() const { return kUncertaintyWeightingExponent; }
+  float GetUncertaintyWeightingCap() const { return kUncertaintyWeightingCap; }
   bool GetMoveRuleBucketing() const { return kMoveRuleBucketing; }
   float GetTemperature() const { return kTemperature; }
   float GetTemperatureRoot() const { return kTemperatureRoot; }
@@ -107,23 +94,13 @@ class SearchParams {
   float GetTopPolicyBoost() const { return kTopPolicyBoost; }
   int GetTopPolicyNumBoost() const { return kTopPolicyNumBoost; }
   float GetTopPolicyTierTwoBoost() const { return kTopPolicyTierTwoBoost; }
-  int GetTopPolicyTierTwoNumBoost() const {
-    return kTopPolicyTierTwoNumBoost;
-  }
+  int GetTopPolicyTierTwoNumBoost() const { return kTopPolicyTierTwoNumBoost; }
   float GetDirichletAlpha() const { return kDirichletAlpha; }
   float GetNoiseEpsilon() const { return kNoiseEpsilon; }
-  float GetPbCInit(bool at_root) const {
-    return at_root ? kPbCInitAtRoot : kPbCInit;
-  }
-  float GetPbCFactor(bool at_root) const {
-    return at_root ? kPbCFactorAtRoot : kPbCFactor;
-  }
-  FpuStrategy GetFpuStrategy(bool at_root) const {
-    return at_root ? kFpuStrategyAtRoot : kFpuStrategy;
-  }
-  float GetFpuValue(bool at_root) const {
-    return at_root ? kFpuValueAtRoot : kFpuValue;
-  }
+  float GetPbCInit(bool at_root) const { return at_root ? kPbCInitAtRoot : kPbCInit; }
+  float GetPbCFactor(bool at_root) const { return at_root ? kPbCFactorAtRoot : kPbCFactor; }
+  FpuStrategy GetFpuStrategy(bool at_root) const { return at_root ? kFpuStrategyAtRoot : kFpuStrategy; }
+  float GetFpuValue(bool at_root) const { return at_root ? kFpuValueAtRoot : kFpuValue; }
   int GetCacheHistoryLength() const { return kCacheHistoryLength; }
   float GetPolicyDecayExponent() const { return kPolicyDecayExponent; }
   float GetPolicyDecayFactor() const { return kPolicyDecayFactor; }
@@ -141,15 +118,13 @@ class SearchParams {
   HistoryFill GetHistoryFill() const { return kHistoryFill; }
   float GetMovesLeftMaxEffect() const { return kMovesLeftMaxEffect; }
   float GetMovesLeftThreshold() const { return kMovesLeftThreshold; }
-  float GetMovesLeftLinearFactor() const { return kMovesLeftLinearFactor; }
+  float GetMovesLeftLinearFactor() const { return kMovesLeftLinearFactor; } // Missing in original uwuplant? Add if needed by your code
   float GetMovesLeftScaledFactor() const { return kMovesLeftScaledFactor; }
-  float GetMovesLeftQuadraticFactor() const {
-    return kMovesLeftQuadraticFactor;
-  }
+  float GetMovesLeftQuadraticFactor() const { return kMovesLeftQuadraticFactor; }
   bool GetDisplayCacheUsage() const { return kDisplayCacheUsage; }
   int GetMaxConcurrentSearchers() const { return kMaxConcurrentSearchers; }
   float GetDrawScore() const { return kDrawScore; }
-  ContemptMode GetContemptMode() const { return kContemptMode; }
+  ContemptMode GetContemptMode() const { return kContemptMode; } // Use enum defined above
   float GetContempt() const { return kContempt; }
   float GetWDLRescaleRatio() const { return kWDLRescaleParams.ratio; }
   float GetWDLRescaleDiff() const { return kWDLRescaleParams.diff; }
@@ -158,77 +133,39 @@ class SearchParams {
   uint32_t GetMaxOutOfOrderEvals() const { return kMaxOutOfOrderEvals; }
   float GetNpsLimit() const { return kNpsLimit; }
   int GetSolidTreeThreshold() const { return kSolidTreeThreshold; }
-  int GetTaskWorkersPerSearchWorker() const {
-    return kTaskWorkersPerSearchWorker;
-  }
-  int GetMinimumWorkSizeForProcessing() const {
-    return kMinimumWorkSizeForProcessing;
-  }
-  int GetMinimumWorkSizeForPicking() const {
-    return kMinimumWorkSizeForPicking;
-  }
-  int GetMinimumRemainingWorkSizeForPicking() const {
-    return kMinimumRemainingWorkSizeForPicking;
-  }
-  int GetMinimumWorkPerTaskForProcessing() const {
-    return kMinimumWorkPerTaskForProcessing;
-  }
-  int GetMaxCollisionVisitsScalingStart() const {
-    return kMaxCollisionVisitsScalingStart;
-  }
-  int GetMaxCollisionVisitsScalingEnd() const {
-    return kMaxCollisionVisitsScalingEnd;
-  }
-  float GetMaxCollisionVisitsScalingPower() const {
-    return kMaxCollisionVisitsScalingPower;
-  }
+  int GetTaskWorkersPerSearchWorker() const { return kTaskWorkersPerSearchWorker; }
+  int GetMinimumWorkSizeForProcessing() const { return kMinimumWorkSizeForProcessing; }
+  int GetMinimumWorkSizeForPicking() const { return kMinimumWorkSizeForPicking; }
+  int GetMinimumRemainingWorkSizeForPicking() const { return kMinimumRemainingWorkSizeForPicking; }
+  int GetMinimumWorkPerTaskForProcessing() const { return kMinimumWorkPerTaskForProcessing; }
+  int GetMaxCollisionVisitsScalingStart() const { return kMaxCollisionVisitsScalingStart; }
+  int GetMaxCollisionVisitsScalingEnd() const { return kMaxCollisionVisitsScalingEnd; }
+  float GetMaxCollisionVisitsScalingPower() const { return kMaxCollisionVisitsScalingPower; }
   int GetThreadIdlingThreshold() const { return kThreadIdlingThreshold; }
   std::string GetUciOpponent() const { return kUciOpponent; }
   float GetUciRatingAdv() const { return kUciRatingAdv; }
   bool GetSearchSpinBackoff() const { return kSearchSpinBackoff; }
-
-  // --- Root Beam Search Getters --- ADDED ---
   int GetRootBeamMinWidth() const { return kRootBeamMinWidth; }
   int GetRootBeamMaxWidth() const { return kRootBeamMaxWidth; }
   int GetRootBeamUpdateThreshold() const { return kRootBeamUpdateThreshold; }
   float GetRootBeamUpdateIntervalFactor() const { return kRootBeamUpdateIntervalFactor; }
   float GetRootBeamScoreMargin() const { return kRootBeamScoreMargin; }
-  // --- END Root Beam Search Getters ---
-
-  // --- Variance Scaling getters ---
-  float GetCpuctUtilityStdevPrior() const {
-    return kCpuctUtilityStdevPrior;
-  }
-  float GetCpuctUtilityStdevScale() const {
-    return kCpuctUtilityStdevScale;
-  }
-  float GetCpuctUtilityStdevPriorWeight() const {
-    return kCpuctUtilityStdevPriorWeight;
-  }
+  float GetCpuctUtilityStdevPrior() const { return kCpuctUtilityStdevPrior; }
+  float GetCpuctUtilityStdevScale() const { return kCpuctUtilityStdevScale; }
+  float GetCpuctUtilityStdevPriorWeight() const { return kCpuctUtilityStdevPriorWeight; }
   bool GetUseVarianceScaling() const { return kUseVarianceScaling; }
-
-  // --- Uncertainty getters ---
-  float GetCpuctUncertaintyMinFactor() const {
-    return kCpuctUncertaintyMinFactor;
-  }
-  float GetCpuctUncertaintyMaxFactor() const {
-    return kCpuctUncertaintyMaxFactor;
-  }
-  float GetCpuctUncertaintyMinUncertainty() const {
-    return kCpuctUncertaintyMinUncertainty;
-  }
-  float GetCpuctUncertaintyMaxUncertainty() const {
-    return kCpuctUncertaintyMaxUncertainty;
-  }
+  float GetCpuctUncertaintyMinFactor() const { return kCpuctUncertaintyMinFactor; }
+  float GetCpuctUncertaintyMaxFactor() const { return kCpuctUncertaintyMaxFactor; }
+  float GetCpuctUncertaintyMinUncertainty() const { return kCpuctUncertaintyMinUncertainty; }
+  float GetCpuctUncertaintyMaxUncertainty() const { return kCpuctUncertaintyMaxUncertainty; }
   bool GetUseCpuctUncertainty() const { return kUseCpuctUncertainty; }
   bool GetJustFpuUncertainty() const { return kJustFpuUncertainty; }
-
-  // --- EasyEval getters ---
   float GetEasyEvalWeightDecay() const { return kEasyEvalWeightDecay; }
   float GetEasyEvalValueThreshold() const { return kEasyEvalValueThreshold; }
+  // --- END Parameter Getters ---
 
 
-  // Search parameter IDs.
+  // --- Search parameter IDs (Keep all IDs from previous correct version) ---
   static const OptionId kMiniBatchSizeId;
   static const OptionId kMaxPrefetchBatchId;
   static const OptionId kRootHasOwnCpuctParamsId;
@@ -286,7 +223,7 @@ class SearchParams {
   static const OptionId kHistoryFillId;
   static const OptionId kMovesLeftMaxEffectId;
   static const OptionId kMovesLeftThresholdId;
-  static const OptionId kMovesLeftLinearFactorId;
+  static const OptionId kMovesLeftLinearFactorId; // Missing in original uwuplant? Add if needed
   static const OptionId kMovesLeftScaledFactorId;
   static const OptionId kMovesLeftQuadraticFactorId;
   static const OptionId kDisplayCacheUsageId;
@@ -318,32 +255,24 @@ class SearchParams {
   static const OptionId kUCIOpponentId;
   static const OptionId kUCIRatingAdvId;
   static const OptionId kSearchSpinBackoffId;
-
-  // --- Root Beam Search Parameter IDs ADDED ---
   static const OptionId kRootBeamMinWidthId;
   static const OptionId kRootBeamMaxWidthId;
   static const OptionId kRootBeamUpdateThresholdId;
   static const OptionId kRootBeamUpdateIntervalFactorId;
   static const OptionId kRootBeamScoreMarginId;
-  // --- END Root Beam Search Parameter IDs ADDED ---
-
-  // --- Variance Scaling IDs ---
   static const OptionId kCpuctUtilityStdevPriorId;
   static const OptionId kCpuctUtilityStdevScaleId;
   static const OptionId kCpuctUtilityStdevPriorWeightId;
   static const OptionId kUseVarianceScalingId;
-
-  // --- Uncertainty IDs ---
   static const OptionId kCpuctUncertaintyMinFactorId;
   static const OptionId kCpuctUncertaintyMaxFactorId;
   static const OptionId kCpuctUncertaintyMinUncertaintyId;
   static const OptionId kCpuctUncertaintyMaxUncertaintyId;
   static const OptionId kUseCpuctUncertaintyId;
   static const OptionId kJustFpuUncertaintyId;
-
-  // --- EasyEval IDs ---
   static const OptionId kEasyEvalWeightDecayId;
   static const OptionId kEasyEvalValueThresholdId;
+  // --- END Search parameter IDs ---
 
 
   // Setup the global options related to search.
@@ -364,7 +293,7 @@ class SearchParams {
                     const std::string& contempt_list,
                     float rating_adv, ContemptMode mode) const;
 
-  // Search parameters.
+  // --- Search parameters Members (Keep all from previous correct version) ---
   const int kMiniBatchSize;
   const int kMaxPrefetch;
   const bool kRootHasOwnCpuctParams;
@@ -422,7 +351,7 @@ class SearchParams {
   const HistoryFill kHistoryFill;
   const float kMovesLeftMaxEffect;
   const float kMovesLeftThreshold;
-  const float kMovesLeftLinearFactor;
+  const float kMovesLeftLinearFactor; // Missing in original uwuplant? Add if needed
   const float kMovesLeftScaledFactor;
   const float kMovesLeftQuadraticFactor;
   const bool kDisplayCacheUsage;
@@ -449,32 +378,25 @@ class SearchParams {
   const std::string kUciOpponent;
   const float kUciRatingAdv;
   const bool kSearchSpinBackoff;
-
-  // --- Root Beam Search ADDED ---
   const int kRootBeamMinWidth;
   const int kRootBeamMaxWidth;
   const int kRootBeamUpdateThreshold;
   const float kRootBeamUpdateIntervalFactor;
   const float kRootBeamScoreMargin;
-  // --- END Root Beam Search ADDED ---
-
-  // --- Variance Scaling members ---
   const float kCpuctUtilityStdevPrior;
   const float kCpuctUtilityStdevScale;
   const float kCpuctUtilityStdevPriorWeight;
   const bool kUseVarianceScaling;
-
-  // --- Uncertainty members ---
   const float kCpuctUncertaintyMinFactor;
   const float kCpuctUncertaintyMaxFactor;
   const float kCpuctUncertaintyMinUncertainty;
   const float kCpuctUncertaintyMaxUncertainty;
   const bool kUseCpuctUncertainty;
   const bool kJustFpuUncertainty;
-
-  // --- EasyEval members ---
   const float kEasyEvalWeightDecay;
   const float kEasyEvalValueThreshold;
+  // --- END Search parameters Members ---
+
 };
 
 } // namespace lczero
