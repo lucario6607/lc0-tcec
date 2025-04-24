@@ -35,7 +35,7 @@
 #include <vector>
 
 // Try include relative to top-level src directory
-#include "../chess/move.h" // <<< CORRECTED PATH (relative to top src/)
+#include "chess/bitboard.h" // <<< CORRECTED PATH (relative to top src/)
 #include "neural/encoder.h"
 #include "utils/optionsdict.h"
 #include "utils/optionsparser.h"
