@@ -38,7 +38,6 @@
 #include <iomanip> // For setprecision
 
 #include "chess/position.h"
-#include "config.h" // <<< Ensure this is included and found by build system
 #include "mcts/node.h" // Include for NodeTree definition
 #include "mcts/params.h"
 #include "neural/encoder.h"
